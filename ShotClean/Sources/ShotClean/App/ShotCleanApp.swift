@@ -6,7 +6,7 @@ struct ShotCleanApp: App {
 
   var body: some Scene {
     WindowGroup {
-      RootPlaceholderView()
+      RootView()
         .environment(model)
     }
   }
