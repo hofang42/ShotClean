@@ -123,8 +123,9 @@ struct ScreenshotAnalyzer: Sendable {
         features: features,
         modificationDate: asset.modificationDate,
         featurePrint: vision.featurePrint,
-        // REV-5: a thumbnail-only analysis or a missing hash is retried on the next scan.
-        isDegraded: image.isDegraded || digest == nil
+        // REV-5 / NEW-1: a thumbnail-only analysis or a missing hash is retried later (24 h),
+        // when the asset changes, or on a full rescan.
+        degradedAt: (image.isDegraded || digest == nil) ? Date() : nil
       ))
   }
 

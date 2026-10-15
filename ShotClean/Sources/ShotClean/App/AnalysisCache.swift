@@ -8,9 +8,13 @@ struct AnalyzedScreenshot: Sendable, Codable, Equatable {
   let modificationDate: Date?
   /// `NSKeyedArchiver` data of a `VNFeaturePrintObservation`, `nil` when Vision failed.
   let featurePrint: Data?
-  /// Analyzed from a low-quality local thumbnail or without a hash (original in iCloud only).
-  /// Shown, but analyzed again on the next scan (REV-5).
-  let isDegraded: Bool
+  /// When the analysis was done from a low-quality local thumbnail or without a hash (original
+  /// in iCloud only); `nil` for a full-quality analysis. Degraded entries are shown and retried
+  /// only when the asset changes, on a full rescan, or after `AnalysisCache.degradedRetryInterval`
+  /// (REV-5, NEW-1) — never on every scan.
+  let degradedAt: Date?
+
+  var isDegraded: Bool { degradedAt != nil }
 }
 
 /// On-disk cache of analysis results keyed by `PHAsset.localIdentifier`.
@@ -19,8 +23,11 @@ struct AnalyzedScreenshot: Sendable, Codable, Equatable {
 /// (`completeUnlessOpen`) and excluded from backups (OCR text must never leave the device).
 /// Value type: load and save off the main actor.
 struct AnalysisCache: Sendable, Codable {
-  /// 2: `isDegraded`, pinned feature-print revision 2, hash of the edited rendition (REV-3/5/12).
-  static let formatVersion = 2
+  /// 3: `degradedAt` (NEW-1); 2: pinned feature-print revision 2, hash of the edited rendition
+  /// (REV-3/5/12).
+  static let formatVersion = 3
+  /// Minimum time before a degraded entry of an unchanged asset is analyzed again (NEW-1).
+  static let degradedRetryInterval: TimeInterval = 24 * 60 * 60
   private static let fileName = "AnalysisCache.plist"
 
   enum LoadResult: Sendable {
@@ -48,10 +55,12 @@ struct AnalysisCache: Sendable, Codable {
     return entry
   }
 
-  /// Whether `asset` must be (re)analyzed: missing, stale or degraded.
-  func needsAnalysis(_ asset: ScreenshotAsset) -> Bool {
+  /// Whether `asset` must be (re)analyzed: missing or stale (modified since), or degraded and
+  /// last tried at least `degradedRetryInterval` before `now`.
+  func needsAnalysis(_ asset: ScreenshotAsset, now: Date) -> Bool {
     guard let entry = validEntry(for: asset) else { return true }
-    return entry.isDegraded
+    guard let degradedAt = entry.degradedAt else { return false }
+    return now.timeIntervalSince(degradedAt) >= Self.degradedRetryInterval
   }
 
   /// Drops entries whose asset no longer exists (deleted, or hidden by limited access).

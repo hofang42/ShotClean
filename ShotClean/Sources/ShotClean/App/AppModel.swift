@@ -165,7 +165,8 @@ final class AppModel {
     let assets = fetched.filter { !deletedIDs.contains($0.id) }
     screenshotCount = assets.count
     let pruned = cache.prune(keeping: Set(assets.map(\.id)))
-    let pending = assets.filter { cache.needsAnalysis($0) }
+    let scanStart = Date()
+    let pending = assets.filter { cache.needsAnalysis($0, now: scanStart) }
     Log.app.info(
       "Scan: \(assets.count) screenshots, \(pending.count) to analyze, full=\(full, privacy: .public)"
     )
@@ -230,6 +231,9 @@ final class AppModel {
     switch loaded {
     case .loaded(let cache):
       canPersistCache = true
+      // NEW-2: a deletion during this first scan can reclassify from it right away; the scan
+      // still works on its own copy and drops `deletedIDs` before publishing.
+      self.cache = cache
       return cache
     case .unavailable:
       // REV-14: never overwrite an unreadable (e.g. locked) file; work in memory this session.
@@ -361,8 +365,8 @@ final class AppModel {
     unavailableIDs.subtract(ids)
     selectionState.remove(ids)
     swipeQueue.removeAll { ids.contains($0) }
-    // During the very first scan there is no in-memory cache yet; that scan drops `deletedIDs`
-    // and publishes the reconciled result when it ends.
+    // No in-memory cache yet (first-ever scan, or unreadable file): the running scan drops
+    // `deletedIDs` and publishes the reconciled result when it ends.
     guard var cache else { return outcome }
     cache.remove(ids)
     self.cache = cache
