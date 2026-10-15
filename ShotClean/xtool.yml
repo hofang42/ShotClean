@@ -1,0 +1,4 @@
+version: 1
+bundleID: com.hofang42.ShotClean
+infoPath: Support/Info.plist
+iconPath: Support/AppIcon.png
