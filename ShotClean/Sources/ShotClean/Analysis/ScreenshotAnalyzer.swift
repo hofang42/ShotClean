@@ -10,18 +10,26 @@ import os  // OSAllocatedUnfairLock
 /// Turns screenshots into `ScreenshotFeatures` (OCR, QR area, feature print, SHA-256), on device.
 ///
 /// Every PhotoKit / Vision object is created and consumed inside a single child task; only
-/// `ScreenshotAsset` and `AnalyzedScreenshot` (both Sendable) enter or leave it.
+/// `ScreenshotAsset`, ids, `Data` and `AnalyzedScreenshot` (all Sendable) enter or leave it.
 struct ScreenshotAnalyzer: Sendable {
   struct Output: Sendable {
     var analyzed: [AnalyzedScreenshot] = []
+    /// Archived feature prints of `analyzed`, by id (stored in `FeaturePrintStore`, REV-10).
+    var featurePrints: [String: Data] = [:]
     /// Assets whose image could not be loaded without network access (iCloud-only, risk R4).
     var unavailableIDs: [String] = []
     /// Assets not analyzed because the scan was cancelled.
     var skippedCount = 0
   }
 
-  /// Long side, in pixels, of the image used for Vision (risk R3).
-  static let analysisLongSide: CGFloat = 1024
+  /// Long side, in pixels, of the image used for Vision (REV-15, risk R3).
+  ///
+  /// iPhone screenshots are about 1179×2556 px. At 1024 px the long side shrinks to ~40 %, so
+  /// body text ends up ~8–10 px high: too small for `.accurate` OCR to keep Vietnamese
+  /// diacritics, and missed dates change ticket/order verdicts. 2048 px keeps text at ~80 %
+  /// of its size. Memory stays bounded: one ~945×2048 RGBA image is ~7.7 MB and at most
+  /// `maxConcurrentTasks` (2) are decoded at a time. Re-check fixture recall in R3.
+  static let analysisLongSide: CGFloat = 2048
 
   let maxConcurrentTasks: Int
 
@@ -29,8 +37,11 @@ struct ScreenshotAnalyzer: Sendable {
     self.maxConcurrentTasks = max(1, maxConcurrentTasks)
   }
 
-  /// Analyzes `assets` with bounded concurrency. Cancellation stops scheduling new work and
-  /// returns what finished. `progress` receives the number of processed assets.
+  /// Analyzes `assets` with bounded concurrency: one child task per stripe (asset i goes to
+  /// stripe i % maxConcurrentTasks). Each child fetches its `PHAsset`s with one
+  /// `fetchAssets(withLocalIdentifiers:)` call and keeps them to itself (REV-16). Cancellation
+  /// stops after the current asset and returns what finished. `progress` receives the number
+  /// of processed assets.
   @concurrent
   func analyze(
     _ assets: [ScreenshotAsset],
@@ -39,35 +50,34 @@ struct ScreenshotAnalyzer: Sendable {
     _ = Self.recognitionLanguages  // Logs the supported OCR languages once (risk R1).
     let clock = ContinuousClock()
     let started = clock.now
-    let limit = maxConcurrentTasks
+    let stripeCount = min(maxConcurrentTasks, assets.count)
+    let processed = OSAllocatedUnfairLock(initialState: 0)
 
-    let output = await withTaskGroup(of: Outcome.self, returning: Output.self) { group in
+    let output = await withTaskGroup(of: [Outcome].self, returning: Output.self) { group in
+      for stripe in 0..<stripeCount {
+        let batch = Swift.stride(from: stripe, to: assets.count, by: stripeCount).map {
+          assets[$0]
+        }
+        group.addTask {
+          await Self.analyzeBatch(batch) {
+            let done = processed.withLock { count in
+              count += 1
+              return count
+            }
+            await progress(done)
+          }
+        }
+      }
       var output = Output()
       output.analyzed.reserveCapacity(assets.count)
-      var nextIndex = 0
-      var processed = 0
-
-      while nextIndex < min(limit, assets.count) {
-        let asset = assets[nextIndex]
-        group.addTask { await Self.analyzeOne(asset) }
-        nextIndex += 1
-      }
-      while let outcome = await group.next() {
-        switch outcome {
-        case .analyzed(let entry): output.analyzed.append(entry)
-        case .unavailable(let id): output.unavailableIDs.append(id)
-        case .skipped: output.skippedCount += 1
-        }
-        processed += 1
-        await progress(processed)
-        if nextIndex < assets.count {
-          if Task.isCancelled {
-            output.skippedCount += assets.count - nextIndex
-            nextIndex = assets.count
-          } else {
-            let asset = assets[nextIndex]
-            group.addTask { await Self.analyzeOne(asset) }
-            nextIndex += 1
+      for await outcomes in group {
+        for outcome in outcomes {
+          switch outcome {
+          case .analyzed(let entry, let print):
+            output.analyzed.append(entry)
+            if let print { output.featurePrints[entry.features.id] = print }
+          case .unavailable(let id): output.unavailableIDs.append(id)
+          case .skipped: output.skippedCount += 1
           }
         }
       }
@@ -90,16 +100,42 @@ struct ScreenshotAnalyzer: Sendable {
   // MARK: Per asset
 
   private enum Outcome: Sendable {
-    case analyzed(AnalyzedScreenshot)
+    case analyzed(AnalyzedScreenshot, featurePrint: Data?)
     case unavailable(String)
     case skipped
   }
 
-  private static func analyzeOne(_ asset: ScreenshotAsset) async -> Outcome {
-    if Task.isCancelled { return .skipped }
-    guard
-      let phAsset = PHAsset.fetchAssets(withLocalIdentifiers: [asset.id], options: nil).firstObject
-    else { return .unavailable(asset.id) }
+  /// Runs inside one child task: the `PHAsset`s fetched here never leave it.
+  private static func analyzeBatch(
+    _ batch: [ScreenshotAsset],
+    onProcessed: @Sendable () async -> Void
+  ) async -> [Outcome] {
+    let fetched = PHAsset.fetchAssets(withLocalIdentifiers: batch.map(\.id), options: nil)
+    var phAssets: [String: PHAsset] = [:]
+    phAssets.reserveCapacity(fetched.count)
+    for index in 0..<fetched.count {
+      let asset = fetched.object(at: index)
+      phAssets[asset.localIdentifier] = asset
+    }
+
+    var outcomes: [Outcome] = []
+    outcomes.reserveCapacity(batch.count)
+    for asset in batch {
+      if Task.isCancelled {
+        outcomes.append(.skipped)
+        continue
+      }
+      if let phAsset = phAssets[asset.id] {
+        outcomes.append(await analyzeOne(asset, phAsset: phAsset))
+      } else {
+        outcomes.append(.unavailable(asset.id))
+      }
+      await onProcessed()
+    }
+    return outcomes
+  }
+
+  private static func analyzeOne(_ asset: ScreenshotAsset, phAsset: PHAsset) async -> Outcome {
     guard let image = await loadImage(for: phAsset) else {
       if Task.isCancelled { return .skipped }
       Log.analysis.debug("No local image for an asset")
@@ -122,11 +158,11 @@ struct ScreenshotAnalyzer: Sendable {
       AnalyzedScreenshot(
         features: features,
         modificationDate: asset.modificationDate,
-        featurePrint: vision.featurePrint,
         // REV-5 / NEW-1: a thumbnail-only analysis or a missing hash is retried later (24 h),
         // when the asset changes, or on a full rescan.
         degradedAt: (image.isDegraded || digest == nil) ? Date() : nil
-      ))
+      ),
+      featurePrint: vision.featurePrint)
   }
 
   // MARK: Image loading

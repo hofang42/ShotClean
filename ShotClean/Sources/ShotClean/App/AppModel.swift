@@ -54,11 +54,17 @@ final class AppModel {
   @ObservationIgnored private var deletedIDs: Set<String> = []
   /// Bumped by every `applyAnalysis`; an older, slower classification never overwrites a newer one.
   @ObservationIgnored private var analysisGeneration = 0
+  /// Latest cache snapshot waiting for the debounced save, the debounce timer, and the last
+  /// write (writes are chained, so they land in order).
+  @ObservationIgnored private var pendingSave: AnalysisCache?
+  @ObservationIgnored private var saveDebounce: Task<Void, Never>?
+  @ObservationIgnored private var lastSave: Task<Void, Never>?
 
   private static let onboardingKey = "hasCompletedOnboarding"
   /// Assets analyzed per chunk; the cache is checkpointed between chunks (REV-7).
   private static let chunkSize = 100
   private static let checkpointInterval: Duration = .seconds(30)
+  private static let saveDelay: Duration = .seconds(2)
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
@@ -158,13 +164,20 @@ final class AppModel {
   private func scan(full: Bool) async {
     var cache = await startingCache(full: full)
 
-    library.forget()
     let fetched = await Task.detached(priority: .userInitiated) {
       ScreenshotLibrary.fetchScreenshots()
     }.value
     let assets = fetched.filter { !deletedIDs.contains($0.id) }
     screenshotCount = assets.count
+    // REV-8: keep thumbnails across scans; drop only ids that vanished or were modified.
+    let modified = Set(
+      assets.filter { cache.entries[$0.id] != nil && cache.validEntry(for: $0) == nil }
+        .map(\.id))
     let pruned = cache.prune(keeping: Set(assets.map(\.id)))
+    library.forget(pruned.union(modified))
+    if !pruned.isEmpty {
+      await Task.detached(priority: .utility) { FeaturePrintStore.remove(pruned) }.value
+    }
     let scanStart = Date()
     let pending = assets.filter { cache.needsAnalysis($0, now: scanStart) }
     Log.app.info(
@@ -190,6 +203,9 @@ final class AppModel {
       let output = await analyzer.analyze(chunk) { [weak self] processed in
         await self?.reportProgress(done: offset + processed, total: total)
       }
+      // REV-10: prints go to their own small files, written once; the plist never holds them.
+      let prints = output.featurePrints
+      await Task.detached(priority: .utility) { FeaturePrintStore.write(prints) }.value
       for entry in output.analyzed where !deletedIDs.contains(entry.features.id) {
         cache.entries[entry.features.id] = entry
       }
@@ -198,7 +214,7 @@ final class AppModel {
       // REV-7: checkpoint, so a killed app does not lose minutes of work.
       if clock.now - lastCheckpoint >= Self.checkpointInterval {
         cache.remove(deletedIDs)
-        await persist(cache)
+        scheduleSave(cache)
         lastCheckpoint = clock.now
       }
     }
@@ -211,8 +227,8 @@ final class AppModel {
     self.cache = cache
 
     // REV-11: nothing new and the cached result is already shown → skip reclassifying.
-    if full || !pending.isEmpty || pruned || !hadResult {
-      await persist(cache)
+    if full || !pending.isEmpty || !pruned.isEmpty || !hadResult {
+      scheduleSave(cache)
       await applyAnalysis(of: entries(of: cache, in: liveAssets), reset: full || result == nil)
     }
     phase = .ready
@@ -254,13 +270,40 @@ final class AppModel {
     assets.compactMap { cache.validEntry(for: $0) }
   }
 
-  private func persist(_ cache: AnalysisCache) async {
+  /// Debounced save (REV-10): a burst of changes (checkpoint, scan end, several deletions)
+  /// produces one write of the small metadata/OCR plist.
+  private func scheduleSave(_ cache: AnalysisCache) {
     guard canPersistCache else { return }
-    do {
-      try await Task.detached(priority: .utility) { try cache.save() }.value
-    } catch {
-      Log.cache.error("Failed to save cache: \(error.localizedDescription, privacy: .public)")
+    pendingSave = cache
+    saveDebounce?.cancel()
+    saveDebounce = Task { [weak self] in
+      do {
+        try await Task.sleep(for: AppModel.saveDelay)
+      } catch {
+        return
+      }
+      await self?.flushSave()
     }
+  }
+
+  /// Writes the pending snapshot now; call when the scene goes to the background. Writes are
+  /// chained, so an older snapshot can never land after a newer one.
+  func flushSave() async {
+    saveDebounce?.cancel()
+    saveDebounce = nil
+    guard canPersistCache, let snapshot = pendingSave else { return }
+    pendingSave = nil
+    let previous = lastSave
+    let task = Task.detached(priority: .utility) {
+      await previous?.value
+      do {
+        try snapshot.save()
+      } catch {
+        Log.cache.error("Failed to save cache: \(error.localizedDescription, privacy: .public)")
+      }
+    }
+    lastSave = task
+    await task.value
   }
 
   // MARK: Analysis
@@ -297,17 +340,16 @@ final class AppModel {
       selectionState.merge(knownIDs: known, preselected: preselected)
     }
     swipeQueue = Self.swipeOrder(for: analysis)
+    // REV-8: one batched, off-main PHAsset fetch for the ids the cells will ask for.
+    await library.syncAssets(with: known)
   }
 
   /// Runs `LibraryAnalyzer` with a feature-print distance. Off the main actor.
   nonisolated private static func classify(_ entries: [AnalyzedScreenshot], now: Date)
     -> AnalysisResult
   {
-    var archives: [String: Data] = [:]
-    for entry in entries {
-      if let print = entry.featurePrint { archives[entry.features.id] = print }
-    }
-    let index = FeaturePrintIndex(archives: archives)
+    // REV-10: prints are read lazily, only for the pairs the clusterer compares.
+    let index = FeaturePrintIndex(load: FeaturePrintStore.read)
     return LibraryAnalyzer().analyze(
       entries.map(\.features),
       distance: { index.distance($0, $1) },
@@ -361,6 +403,7 @@ final class AppModel {
     let removedCount = ids.intersection(featuresByID.keys).count
     deletedIDs.formUnion(ids)
     library.forget(ids)
+    await Task.detached(priority: .utility) { FeaturePrintStore.remove(ids) }.value
     screenshotCount = max(0, screenshotCount - removedCount)
     unavailableIDs.subtract(ids)
     selectionState.remove(ids)
@@ -370,7 +413,7 @@ final class AppModel {
     guard var cache else { return outcome }
     cache.remove(ids)
     self.cache = cache
-    await persist(cache)
+    scheduleSave(cache)
     let ordered = cache.entries.values.sorted {
       ($0.features.createdAt, $0.features.id) < ($1.features.createdAt, $1.features.id)
     }

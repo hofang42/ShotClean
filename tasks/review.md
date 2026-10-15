@@ -328,15 +328,15 @@ iOS 27 SDK (warnings, not errors).
 - **REV-5 — Resolution: fixed.** `AnalyzedScreenshot.isDegraded` (fast-format/degraded image or no hash); `AnalysisCache.needsAnalysis` re-queues degraded entries, which are still shown meanwhile. `formatVersion` → 2 (version probed before full decode).
 - **REV-6 — Resolution: fixed.** `deletedIDs` set: a scan filters fetched assets, analyzed entries, checkpoints and the final cache/result against it; `applyAnalysis` uses a generation counter so an older classification never overwrites a newer one.
 - **REV-7 — Resolution: fixed.** Pending assets are analyzed in chunks of 100; the cache is checkpointed at most every 30 s.
-- **REV-8 — Resolution: fixed.** Thumbnails: `PHAsset` map on the main actor, `NSCache` (64 MB cost limit), request cancelled with the task via new `Library/PhotoRequest.swift` (resume-once bridge; probe-compiled in Swift 6 mode with a lock shim).
+- **REV-8 — Resolution: fixed** (completed in a follow-up, see verification.md). Thumbnails: batched off-main `PHAsset` map, `NSCache` (64 MB cost limit), request cancelled with the task via new `Library/PhotoRequest.swift` (resume-once bridge; probe-compiled in Swift 6 mode with a lock shim).
 - **REV-9 — Resolution: fixed.** Keeper overrides live in `SelectionState` (via `AppModel.keeper(of:)` / `setKeeper(_:in:)`), are cleared on reset, pruned on merge, and count as user choices.
-- **REV-10 — Resolution: won't fix now.** Splitting feature prints out of the plist is deferred until R3 measures the real file size; saves are now skipped when a scan changed nothing (REV-11), checkpoints are time-throttled.
+- **REV-10 — Resolution: fixed.** Feature prints are stored as raw `Data` files in `FeaturePrintStore` (one per id, loaded lazily by `FeaturePrintIndex`); the plist keeps only metadata and OCR. Saves are debounced and flushed on background. Cache version 4 (start fresh, prints cleared).
 - **REV-11 — Resolution: fixed.** The post-scan `applyAnalysis` and save are skipped when nothing was pending or pruned and the cached result is already shown.
 - **REV-12 — Resolution: fixed.** `printRequest.revision = VNGenerateImageFeaturePrintRequestRevision2`; cache version bump invalidates older prints.
 - **REV-13 — Resolution: fixed.** `CFBundleShortVersionString` 1.0 / `CFBundleVersion` 1 in `Support/Info.plist`.
 - **REV-14 — Resolution: fixed.** `.completeFileProtectionUnlessOpen`; `load()` returns `.unavailable` on read errors, and the model then works in memory without overwriting the file. Missing/outdated/corrupt still start fresh.
-- **REV-15 — Resolution: won't fix now.** Needs fixture recall measurement in R3 (1024 vs 1600–2048 px).
-- **REV-16 — Resolution: partly fixed.** Image and data requests are cancelled with the task (`PhotoRequest`). Batch `fetchAssets` per chunk not done: `PHAsset` is not Sendable and must stay inside each child task; per-id fetch is small next to Vision cost.
+- **REV-15 — Resolution: fixed.** `analysisLongSide = 2048` (named constant, justified in a comment, shown on the Debug screen). Recall should still be confirmed in R3.
+- **REV-16 — Resolution: fixed.** Requests are cancelled with the task (`PhotoRequest`), and each analyzer child task fetches its stripe of assets with one `fetchAssets(withLocalIdentifiers:)` call; `PHAsset`s never leave that task.
 - **REV-17 — Resolution: fixed.** `DeleteResult { deleted(Int), cancelled, nothingToDelete }`; the sheet shows a distinct message for nothing-to-delete, and those ids are reconciled out of the model.
 - **REV-18 — Resolution: fixed.** Hero headline bytes/count exclude near duplicates (still shown in the bar and as the "Cần bạn xem" card); when only near duplicates exist the headline says "Cần bạn xem".
 - **REV-19 — Resolution (app side): fixed.** Label "Nét nhất" → "Lớn nhất" (`Strings.Cluster.keeperLargest`). Cluster span cap remains a product decision (Core).

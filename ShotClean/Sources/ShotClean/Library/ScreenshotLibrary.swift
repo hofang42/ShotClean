@@ -36,9 +36,13 @@ enum PhotoAccess: Sendable, Equatable {
 /// PhotoKit may call them on background queues.
 @MainActor
 final class ScreenshotLibrary {
-  /// `PHAsset`s by id, so grid cells do not hit the photo database once per cell (REV-8).
-  /// Only touched on the main actor; never sent to another isolation domain.
+  /// `PHAsset`s by id, built in one batch per published result (REV-8). Only touched on the
+  /// main actor once handed over; never sent anywhere else.
   private var assets: [String: PHAsset] = [:]
+  /// Ids forgotten while a batched fetch was in flight; its results must not re-add them.
+  private var forgottenDuringSync: Set<String> = []
+  /// Cache keys per id, so one id's thumbnails can be dropped (NSCache cannot enumerate).
+  private var thumbnailKeys: [String: Set<String>] = [:]
   /// Decoded thumbnails keyed by id and pixel size.
   private let thumbnails: NSCache<NSString, UIImage> = {
     let cache = NSCache<NSString, UIImage>()
@@ -114,37 +118,69 @@ final class ScreenshotLibrary {
   /// Thumbnail for `id`. `size` is in pixels (points × display scale). Local data only.
   /// Cached in memory; the PhotoKit request is cancelled when the calling task is (REV-8).
   func thumbnail(for id: String, size: CGSize) async -> UIImage? {
-    let key = "\(id)|\(Int(size.width))x\(Int(size.height))" as NSString
-    if let cached = thumbnails.object(forKey: key) { return cached }
-    guard let asset = asset(for: id) else { return nil }
+    let key = "\(id)|\(Int(size.width))x\(Int(size.height))"
+    if let cached = thumbnails.object(forKey: key as NSString) { return cached }
+    guard let asset = await asset(for: id) else { return nil }
     let image = await PhotoRequest<UIImage?>().run(cancelledValue: nil) { finish in
       Self.startThumbnailRequest(asset: asset, size: size, finish: finish)
     }
     if let image, !Task.isCancelled {
       let cost = Int(image.size.width * image.scale * image.size.height * image.scale * 4)
-      thumbnails.setObject(image, forKey: key, cost: cost)
+      thumbnails.setObject(image, forKey: key as NSString, cost: cost)
+      thumbnailKeys[id, default: []].insert(key)
     }
     return image
   }
 
-  /// Forgets cached assets and thumbnails (after deletion or a rescan).
-  func forget(_ ids: Set<String>? = nil) {
-    guard let ids else {
-      assets.removeAll()
-      thumbnails.removeAllObjects()
-      return
+  /// Brings the id → `PHAsset` map in line with the published result: one batched fetch for
+  /// the ids not mapped yet, off the main actor, and drops ids that disappeared (REV-8).
+  func syncAssets(with ids: Set<String>) async {
+    forget(Set(assets.keys).subtracting(ids))
+    let missing = Array(ids.subtracting(assets.keys))
+    guard !missing.isEmpty else { return }
+    forgottenDuringSync = []
+    let fetched = await Self.fetchAssetMap(missing)
+    for (id, asset) in fetched where assets[id] == nil && !forgottenDuringSync.contains(id) {
+      assets[id] = asset
     }
-    for id in ids { assets[id] = nil }
-    // NSCache cannot enumerate keys; deleted ids are never requested again, so a full flush is
-    // only needed when an asset might have changed (rescan).
   }
 
-  private func asset(for id: String) -> PHAsset? {
+  /// Drops mapped assets and cached thumbnails for `ids` (deleted, gone, or modified).
+  func forget(_ ids: Set<String>) {
+    guard !ids.isEmpty else { return }
+    forgottenDuringSync.formUnion(ids)
+    for id in ids {
+      assets[id] = nil
+      for key in thumbnailKeys.removeValue(forKey: id) ?? [] {
+        thumbnails.removeObject(forKey: key as NSString)
+      }
+    }
+  }
+
+  /// Mapped asset, or one fetched off the main actor when a cell appears before the map is
+  /// built. Never a synchronous fetch on the main actor.
+  private func asset(for id: String) async -> PHAsset? {
     if let asset = assets[id] { return asset }
-    guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
-    else { return nil }
-    assets[id] = asset
-    return asset
+    let fetched = await Self.fetchAssetMap([id])
+    guard let asset = fetched[id] else { return nil }
+    if assets[id] == nil { assets[id] = asset }
+    return assets[id]
+  }
+
+  /// One `fetchAssets(withLocalIdentifiers:)` for all `ids`, on the global executor. The map is
+  /// built here and handed over with `sending`: nothing else references these `PHAsset`s, so
+  /// the compiler can prove the transfer to the main actor is race-free.
+  @concurrent
+  private nonisolated static func fetchAssetMap(_ ids: [String]) async -> sending [String: PHAsset]
+  {
+    let result = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
+    var map: [String: PHAsset] = [:]
+    map.reserveCapacity(result.count)
+    for index in 0..<result.count {
+      let asset = result.object(at: index)
+      map[asset.localIdentifier] = asset
+    }
+    return map
   }
 
   /// Formed in nonisolated code: PhotoKit calls the handler on its own queue.

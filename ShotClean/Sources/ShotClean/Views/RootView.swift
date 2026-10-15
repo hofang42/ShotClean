@@ -54,8 +54,14 @@ struct RootView: View {
     }
     .onChange(of: scenePhase) { _, newPhase in
       // E1 / REV-20: access may have changed in Settings, or new screenshots were taken.
-      if newPhase == .active {
+      switch newPhase {
+      case .active:
         Task { await model.refreshAfterForeground() }
+      case .background:
+        // REV-10: saves are debounced; write any pending snapshot before suspension.
+        Task { await model.flushSave() }
+      default:
+        break
       }
     }
   }

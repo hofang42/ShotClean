@@ -203,6 +203,8 @@ enum Strings {
     static let selected = "Đang chọn"
     static let swipeQueue = "Hàng chờ vuốt"
     static let ocrLanguages = "Ngôn ngữ OCR"
+    static let ocrMaxDimension = "Cạnh dài ảnh OCR"
+    static func pixels(_ value: String) -> String { "\(value) px" }
     static let loading = "Đang đọc…"
     static let suggestion = "Đề xuất"
     static let reason = "Lý do"

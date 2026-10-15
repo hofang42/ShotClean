@@ -6,8 +6,6 @@ struct AnalyzedScreenshot: Sendable, Codable, Equatable {
   let features: ScreenshotFeatures
   /// `PHAsset.modificationDate` at analysis time; a different value invalidates the entry.
   let modificationDate: Date?
-  /// `NSKeyedArchiver` data of a `VNFeaturePrintObservation`, `nil` when Vision failed.
-  let featurePrint: Data?
   /// When the analysis was done from a low-quality local thumbnail or without a hash (original
   /// in iCloud only); `nil` for a full-quality analysis. Degraded entries are shown and retried
   /// only when the asset changes, on a full rescan, or after `AnalysisCache.degradedRetryInterval`
@@ -23,9 +21,10 @@ struct AnalyzedScreenshot: Sendable, Codable, Equatable {
 /// (`completeUnlessOpen`) and excluded from backups (OCR text must never leave the device).
 /// Value type: load and save off the main actor.
 struct AnalysisCache: Sendable, Codable {
-  /// 3: `degradedAt` (NEW-1); 2: pinned feature-print revision 2, hash of the edited rendition
-  /// (REV-3/5/12).
-  static let formatVersion = 3
+  /// 4: feature prints moved to `FeaturePrintStore` (REV-10); 3: `degradedAt` (NEW-1);
+  /// 2: pinned feature-print revision 2, hash of the edited rendition (REV-3/5/12).
+  /// Any other version starts fresh (and clears stored prints).
+  static let formatVersion = 4
   /// Minimum time before a degraded entry of an unchanged asset is analyzed again (NEW-1).
   static let degradedRetryInterval: TimeInterval = 24 * 60 * 60
   private static let fileName = "AnalysisCache.plist"
@@ -64,12 +63,12 @@ struct AnalysisCache: Sendable, Codable {
   }
 
   /// Drops entries whose asset no longer exists (deleted, or hidden by limited access).
-  /// Returns whether anything was dropped.
+  /// Returns the dropped ids.
   @discardableResult
-  mutating func prune(keeping ids: Set<String>) -> Bool {
-    let before = entries.count
-    entries = entries.filter { ids.contains($0.key) }
-    return entries.count != before
+  mutating func prune(keeping ids: Set<String>) -> Set<String> {
+    let dropped = Set(entries.keys).subtracting(ids)
+    remove(dropped)
+    return dropped
   }
 
   mutating func remove(_ ids: Set<String>) {
@@ -91,7 +90,7 @@ struct AnalysisCache: Sendable, Codable {
     do {
       url = try fileURL()
       guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
-        return .loaded(AnalysisCache())
+        return fresh()
       }
       data = try Data(contentsOf: url)
     } catch {
@@ -102,7 +101,7 @@ struct AnalysisCache: Sendable, Codable {
       let probe = try PropertyListDecoder().decode(VersionProbe.self, from: data)
       guard probe.version == formatVersion else {
         Log.cache.notice("Cache format \(probe.version) is outdated, starting fresh")
-        return .loaded(AnalysisCache())
+        return fresh()
       }
       let cache = try PropertyListDecoder().decode(AnalysisCache.self, from: data)
       Log.cache.info("Loaded \(cache.entries.count) cached analyses")
@@ -110,8 +109,15 @@ struct AnalysisCache: Sendable, Codable {
     } catch {
       Log.cache.error(
         "Cache file corrupt, starting fresh: \(error.localizedDescription, privacy: .public)")
-      return .loaded(AnalysisCache())
+      return fresh()
     }
+  }
+
+  /// An empty cache. Stored feature prints are cleared with it, so no orphan print from an
+  /// older format can be matched to a later analysis (REV-10 migration).
+  private static func fresh() -> LoadResult {
+    FeaturePrintStore.removeAll()
+    return .loaded(AnalysisCache())
   }
 
   func save() throws {
@@ -127,7 +133,9 @@ struct AnalysisCache: Sendable, Codable {
     Log.cache.info("Saved \(entries.count) analyses (\(data.count) bytes)")
   }
 
+  /// Deletes the cache file and every stored feature print (full rescan).
   static func deleteFile() {
+    FeaturePrintStore.removeAll()
     do {
       try FileManager.default.removeItem(at: try fileURL())
     } catch {

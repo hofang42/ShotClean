@@ -81,6 +81,9 @@ struct DebugView: View {
       LabeledContent(Strings.Debug.selected, value: Format.count(model.selection.count))
       LabeledContent(Strings.Debug.swipeQueue, value: Format.count(model.swipeQueue.count))
       LabeledContent(
+        Strings.Debug.ocrMaxDimension,
+        value: Strings.Debug.pixels(Format.count(Int(ScreenshotAnalyzer.analysisLongSide))))
+      LabeledContent(
         Strings.Debug.ocrLanguages,
         value: languages.map { $0.joined(separator: ", ") } ?? Strings.Debug.loading)
     }
