@@ -319,3 +319,27 @@ iOS 27 SDK (warnings, not errors).
 - **REV-19 — Resolution (Core side): no Core change.** The misleading "Nét nhất" label is app-side; the Core keeper rule (largest area, ties → oldest) is documented in `Models.swift`. Capping near-duplicate cluster span would change clustering semantics and is left as a product decision.
 - **REV-3 — Resolution (Core side): no Core change.** The root cause is which PhotoKit resource the app hashes; the Core only compares the `sha256` it is given.
 - Also fixed in Core: BUG-1..BUG-6 (see `tasks/bugs.md`, Status section).
+
+## Resolution — app items (R7b app-fixer, 2026-10-15) — NOT COMPILED (no iOS SDK)
+- **REV-1 — Resolution: fixed.** New pure `App/SelectionState.swift`: `reset` only on first result / full rescan; `merge` on incremental scans and deletions keeps the user's choice for every id they touched, adds preselection only for ids new since the last merge, drops vanished ids. Views no longer mutate `selection` directly (`toggleSelection`, `setSelected(_:for:)`). Logic probe-compiled and checked on Linux (7 cases).
+- **REV-2 — Resolution: fixed.** `SwipeCard` delivers swipe decisions through `.task(id: leavingAction)` (cancelled with the card) and reports `onLeave`; `SwipeReviewView.decide(_:for:)` ignores callbacks whose card id is no longer current; all bar buttons, undo and "Xong" are disabled while a card is leaving.
+- **REV-3 — Resolution: fixed.** SHA-256 hashes `.fullSizePhoto` when `asset.hasAdjustments`, else `.photo`; no fallback to other resources (returns `nil`, so the asset is excluded from exact-dup detection and retried). `fileSize` now reflects the rendered version.
+- **REV-4 — Resolution (app side): fixed.** Missing `creationDate` → `CaptureDate.unknown` (`.distantPast`), the sentinel the Core treats as unknown; it also sorts first, so an undated copy is always the exact-dup keeper. `AppModel` removes undated ids from preselection; views show "Chưa rõ" via `captureDate(for:)` instead of year 0001.
+- **REV-5 — Resolution: fixed.** `AnalyzedScreenshot.isDegraded` (fast-format/degraded image or no hash); `AnalysisCache.needsAnalysis` re-queues degraded entries, which are still shown meanwhile. `formatVersion` → 2 (version probed before full decode).
+- **REV-6 — Resolution: fixed.** `deletedIDs` set: a scan filters fetched assets, analyzed entries, checkpoints and the final cache/result against it; `applyAnalysis` uses a generation counter so an older classification never overwrites a newer one.
+- **REV-7 — Resolution: fixed.** Pending assets are analyzed in chunks of 100; the cache is checkpointed at most every 30 s.
+- **REV-8 — Resolution: fixed.** Thumbnails: `PHAsset` map on the main actor, `NSCache` (64 MB cost limit), request cancelled with the task via new `Library/PhotoRequest.swift` (resume-once bridge; probe-compiled in Swift 6 mode with a lock shim).
+- **REV-9 — Resolution: fixed.** Keeper overrides live in `SelectionState` (via `AppModel.keeper(of:)` / `setKeeper(_:in:)`), are cleared on reset, pruned on merge, and count as user choices.
+- **REV-10 — Resolution: won't fix now.** Splitting feature prints out of the plist is deferred until R3 measures the real file size; saves are now skipped when a scan changed nothing (REV-11), checkpoints are time-throttled.
+- **REV-11 — Resolution: fixed.** The post-scan `applyAnalysis` and save are skipped when nothing was pending or pruned and the cached result is already shown.
+- **REV-12 — Resolution: fixed.** `printRequest.revision = VNGenerateImageFeaturePrintRequestRevision2`; cache version bump invalidates older prints.
+- **REV-13 — Resolution: fixed.** `CFBundleShortVersionString` 1.0 / `CFBundleVersion` 1 in `Support/Info.plist`.
+- **REV-14 — Resolution: fixed.** `.completeFileProtectionUnlessOpen`; `load()` returns `.unavailable` on read errors, and the model then works in memory without overwriting the file. Missing/outdated/corrupt still start fresh.
+- **REV-15 — Resolution: won't fix now.** Needs fixture recall measurement in R3 (1024 vs 1600–2048 px).
+- **REV-16 — Resolution: partly fixed.** Image and data requests are cancelled with the task (`PhotoRequest`). Batch `fetchAssets` per chunk not done: `PHAsset` is not Sendable and must stay inside each child task; per-id fetch is small next to Vision cost.
+- **REV-17 — Resolution: fixed.** `DeleteResult { deleted(Int), cancelled, nothingToDelete }`; the sheet shows a distinct message for nothing-to-delete, and those ids are reconciled out of the model.
+- **REV-18 — Resolution: fixed.** Hero headline bytes/count exclude near duplicates (still shown in the bar and as the "Cần bạn xem" card); when only near duplicates exist the headline says "Cần bạn xem".
+- **REV-19 — Resolution (app side): fixed.** Label "Nét nhất" → "Lớn nhất" (`Strings.Cluster.keeperLargest`). Cluster span cap remains a product decision (Core).
+- **REV-20 — Resolution: fixed.** `RootView` calls `AppModel.refreshAfterForeground()` on `.active`: re-applies access when it changed (denied/limited/full) and rescans incrementally when the screenshot count changed.
+- **REV-22 — Resolution: fixed.** OCR text section in `ScreenshotDetailView` and the Debug link in `SettingsView` are `#if DEBUG` only.
+- **REV-23 — Resolution: not app code.** SPEC.md success criterion 6 should use `"URLSession|URLRequest|import Network"`; left for the SPEC owner. That grep over `Sources` is empty.

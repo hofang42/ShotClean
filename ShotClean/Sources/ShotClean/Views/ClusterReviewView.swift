@@ -15,8 +15,6 @@ struct ClusterReviewView: View {
 
   @Environment(AppModel.self) private var model
   @Environment(AppRouter.self) private var router
-  /// Original keeper id → keeper chosen by the user.
-  @State private var keeperOverrides: [String: String] = [:]
   @State private var comparison: Comparison?
 
   private var kindClusters: [Cluster] {
@@ -35,19 +33,20 @@ struct ClusterReviewView: View {
           .foregroundStyle(.secondary)
 
         ForEach(clusters, id: \.keeperID) { cluster in
-          let keeperID = keeper(of: cluster)
+          let keeperID = model.keeper(of: cluster)
           ClusterRow(
             kind: kind,
             members: members(of: cluster),
             keeperID: keeperID,
             keeperNote: keeperNote(cluster: cluster, keeper: keeperID),
-            onSetKeeper: { setKeeper($0, in: cluster) },
-            onToggle: toggle,
+            onSetKeeper: { model.setKeeper($0, in: cluster) },
+            onToggle: { model.toggleSelection($0) },
             onSelectOthers: {
               // Bulk selection never includes receipts; they can still be picked one by one.
               let verdicts = model.result?.verdicts ?? [:]
-              model.selection.formUnion(
-                cluster.memberIDs.filter {
+              model.setSelected(
+                true,
+                for: cluster.memberIDs.filter {
                   $0 != keeperID && verdicts[$0]?.category != .transferReceipt
                 })
             },
@@ -96,18 +95,14 @@ struct ClusterReviewView: View {
     }
   }
 
-  private func keeper(of cluster: Cluster) -> String {
-    keeperOverrides[cluster.keeperID] ?? cluster.keeperID
-  }
-
   private func keeperNote(cluster: Cluster, keeper: String) -> String {
     guard keeper == cluster.keeperID else { return Strings.Cluster.keeperChosen }
-    return cluster.kind == .exact ? Strings.Cluster.keeperOldest : Strings.Cluster.keeperSharpest
+    return cluster.kind == .exact ? Strings.Cluster.keeperOldest : Strings.Cluster.keeperLargest
   }
 
   private func members(of cluster: Cluster) -> [ClusterRow.Member] {
     cluster.memberIDs.map { id in
-      let date = model.features(for: id)?.createdAt
+      let date = model.captureDate(for: id)
       return ClusterRow.Member(
         id: id,
         dateText: date.map(Format.date) ?? "",
@@ -115,27 +110,6 @@ struct ClusterReviewView: View {
         isReceipt: model.result?.verdicts[id]?.category == .transferReceipt,
         isSelected: model.selection.contains(id)
       )
-    }
-  }
-
-  private func setKeeper(_ newKeeper: String, in cluster: Cluster) {
-    let oldKeeper = keeper(of: cluster)
-    guard newKeeper != oldKeeper else { return }
-    keeperOverrides[cluster.keeperID] = newKeeper
-    model.selection.remove(newKeeper)
-    // Exact duplicates: the previous keeper becomes a plain duplicate. Never auto-select a
-    // receipt, and never auto-select anything in near-duplicate clusters.
-    let oldIsReceipt = model.result?.verdicts[oldKeeper]?.category == .transferReceipt
-    if cluster.kind == .exact, !oldIsReceipt {
-      model.selection.insert(oldKeeper)
-    }
-  }
-
-  private func toggle(_ id: String) {
-    if model.selection.contains(id) {
-      model.selection.remove(id)
-    } else {
-      model.selection.insert(id)
     }
   }
 }

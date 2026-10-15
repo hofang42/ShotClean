@@ -8,6 +8,7 @@ struct DeleteSummarySheet: View {
   private enum Outcome {
     case deleted(count: Int, bytes: Int64)
     case cancelled
+    case nothingToDelete
     case failed(String)
   }
 
@@ -113,6 +114,7 @@ struct DeleteSummarySheet: View {
   private var outcomeMessage: String? {
     switch outcome {
     case .cancelled: Strings.Deletion.cancelled
+    case .nothingToDelete: Strings.Deletion.nothingToDelete
     case .failed(let message): Strings.Deletion.failed(message)
     case .deleted, nil: nil
     }
@@ -136,16 +138,18 @@ struct DeleteSummarySheet: View {
     outcome = nil
     Task {
       do {
-        let deleted = try await model.delete(pending.ids)
-        if deleted > 0 {
+        switch try await model.delete(pending.ids) {
+        case .deleted(let deleted):
           // Approximate if some assets were already gone.
           let bytes =
             deleted == pending.ids.count
             ? expectedBytes
             : expectedBytes * Int64(deleted) / Int64(max(pending.ids.count, 1))
           outcome = .deleted(count: deleted, bytes: bytes)
-        } else {
+        case .cancelled:
           outcome = .cancelled
+        case .nothingToDelete:
+          outcome = .nothingToDelete
         }
       } catch {
         outcome = .failed(error.localizedDescription)

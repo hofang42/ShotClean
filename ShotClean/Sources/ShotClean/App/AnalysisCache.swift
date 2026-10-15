@@ -8,16 +8,32 @@ struct AnalyzedScreenshot: Sendable, Codable, Equatable {
   let modificationDate: Date?
   /// `NSKeyedArchiver` data of a `VNFeaturePrintObservation`, `nil` when Vision failed.
   let featurePrint: Data?
+  /// Analyzed from a low-quality local thumbnail or without a hash (original in iCloud only).
+  /// Shown, but analyzed again on the next scan (REV-5).
+  let isDegraded: Bool
 }
 
 /// On-disk cache of analysis results keyed by `PHAsset.localIdentifier`.
 ///
-/// Stored as a binary property list in Application Support with complete file protection and
-/// excluded from backups (OCR text must never leave the device). Value type: load and save
-/// off the main actor.
+/// Stored as a binary property list in Application Support, encrypted at rest
+/// (`completeUnlessOpen`) and excluded from backups (OCR text must never leave the device).
+/// Value type: load and save off the main actor.
 struct AnalysisCache: Sendable, Codable {
-  static let formatVersion = 1
+  /// 2: `isDegraded`, pinned feature-print revision 2, hash of the edited rendition (REV-3/5/12).
+  static let formatVersion = 2
   private static let fileName = "AnalysisCache.plist"
+
+  enum LoadResult: Sendable {
+    /// The stored cache, or an empty one when the file is missing, outdated or corrupt.
+    case loaded(AnalysisCache)
+    /// The file exists but cannot be read right now (e.g. data protection while locked).
+    /// Callers must not overwrite it (REV-14).
+    case unavailable
+  }
+
+  private struct VersionProbe: Decodable {
+    let version: Int
+  }
 
   private(set) var version = AnalysisCache.formatVersion
   var entries: [String: AnalyzedScreenshot] = [:]
@@ -32,9 +48,19 @@ struct AnalysisCache: Sendable, Codable {
     return entry
   }
 
+  /// Whether `asset` must be (re)analyzed: missing, stale or degraded.
+  func needsAnalysis(_ asset: ScreenshotAsset) -> Bool {
+    guard let entry = validEntry(for: asset) else { return true }
+    return entry.isDegraded
+  }
+
   /// Drops entries whose asset no longer exists (deleted, or hidden by limited access).
-  mutating func prune(keeping ids: Set<String>) {
+  /// Returns whether anything was dropped.
+  @discardableResult
+  mutating func prune(keeping ids: Set<String>) -> Bool {
+    let before = entries.count
     entries = entries.filter { ids.contains($0.key) }
+    return entries.count != before
   }
 
   mutating func remove(_ ids: Set<String>) {
@@ -49,24 +75,33 @@ struct AnalysisCache: Sendable, Codable {
     return directory.appending(path: fileName, directoryHint: .notDirectory)
   }
 
-  /// Loads the cache; returns an empty cache when the file is missing, unreadable or outdated.
-  static func load() -> AnalysisCache {
+  /// Loads the cache. Missing, outdated or undecodable → empty cache; unreadable → `.unavailable`.
+  static func load() -> LoadResult {
+    let url: URL
+    let data: Data
     do {
-      let url = try fileURL()
+      url = try fileURL()
       guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
-        return AnalysisCache()
+        return .loaded(AnalysisCache())
       }
-      let data = try Data(contentsOf: url)
-      let cache = try PropertyListDecoder().decode(AnalysisCache.self, from: data)
-      guard cache.version == formatVersion else {
-        Log.cache.notice("Cache format \(cache.version) is outdated, starting fresh")
-        return AnalysisCache()
-      }
-      Log.cache.info("Loaded \(cache.entries.count) cached analyses")
-      return cache
+      data = try Data(contentsOf: url)
     } catch {
-      Log.cache.error("Failed to load cache: \(error.localizedDescription, privacy: .public)")
-      return AnalysisCache()
+      Log.cache.error("Cache file unreadable: \(error.localizedDescription, privacy: .public)")
+      return .unavailable
+    }
+    do {
+      let probe = try PropertyListDecoder().decode(VersionProbe.self, from: data)
+      guard probe.version == formatVersion else {
+        Log.cache.notice("Cache format \(probe.version) is outdated, starting fresh")
+        return .loaded(AnalysisCache())
+      }
+      let cache = try PropertyListDecoder().decode(AnalysisCache.self, from: data)
+      Log.cache.info("Loaded \(cache.entries.count) cached analyses")
+      return .loaded(cache)
+    } catch {
+      Log.cache.error(
+        "Cache file corrupt, starting fresh: \(error.localizedDescription, privacy: .public)")
+      return .loaded(AnalysisCache())
     }
   }
 
@@ -75,7 +110,8 @@ struct AnalysisCache: Sendable, Codable {
     let encoder = PropertyListEncoder()
     encoder.outputFormat = .binary
     let data = try encoder.encode(self)
-    try data.write(to: url, options: [.atomic, .completeFileProtection])
+    // REV-14: readable while the app has it open after first unlock, still encrypted at rest.
+    try data.write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
     var values = URLResourceValues()
     values.isExcludedFromBackup = true
     try url.setResourceValues(values)

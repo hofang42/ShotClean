@@ -53,9 +53,9 @@ struct RootView: View {
       if model.hasCompletedOnboarding { await model.start() }
     }
     .onChange(of: scenePhase) { _, newPhase in
-      // E1: the user may have granted access in Settings.
-      if newPhase == .active, model.phase == .denied {
-        Task { await model.start() }
+      // E1 / REV-20: access may have changed in Settings, or new screenshots were taken.
+      if newPhase == .active {
+        Task { await model.refreshAfterForeground() }
       }
     }
   }

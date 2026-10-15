@@ -9,7 +9,7 @@ import UIKit
 /// - Root view: `.task { if model.hasCompletedOnboarding { await model.start() } }`
 /// - Onboarding button (S1): `await model.start()` (marks onboarding done).
 /// - Permission priming (S2): `await model.requestPermission()`.
-/// - Returning from Settings (E1): call `start()` again when the scene becomes active.
+/// - Scene becomes active: `await model.refreshAfterForeground()` (E1, REV-20).
 @MainActor
 @Observable
 final class AppModel {
@@ -26,12 +26,14 @@ final class AppModel {
   /// Latest analysis. During an incremental scan this holds the cached result, so the overview
   /// can be shown while `phase == .scanning`.
   private(set) var result: AnalysisResult?
-  /// id → file size in bytes, only for screenshots whose original was hashed on device.
+  /// id → file size in bytes, only for screenshots whose rendition was hashed on device.
   private(set) var sizes: [String: Int64] = [:]
-  /// Ids currently selected for deletion.
-  var selection: Set<String> = []
+  /// Selection bookkeeping; rescans merge into it instead of replacing it (REV-1).
+  private(set) var selectionState = SelectionState()
+  /// Ids currently selected for deletion. Change it through the selection methods below.
+  var selection: Set<String> { selectionState.selected }
   /// Ids to review in swipe mode (S7): `.delete` then `.review` suggestions, by category priority.
-  var swipeQueue: [String] = []
+  private(set) var swipeQueue: [String] = []
 
   // Additions beyond the plan contract (read-only, for S4 / Debug).
   /// Total number of screenshots visible to the app (the "/ 3.800" in S4).
@@ -44,10 +46,19 @@ final class AppModel {
   @ObservationIgnored private let library = ScreenshotLibrary()
   @ObservationIgnored private let analyzer = ScreenshotAnalyzer(maxConcurrentTasks: 2)
   @ObservationIgnored private var cache: AnalysisCache?
+  /// `false` when the cache file exists but could not be read; it must not be overwritten.
+  @ObservationIgnored private var canPersistCache = true
   @ObservationIgnored private var featuresByID: [String: ScreenshotFeatures] = [:]
   @ObservationIgnored private var scanTask: Task<Void, Never>?
+  /// Ids deleted this session. A scan that started before a deletion never brings them back (REV-6).
+  @ObservationIgnored private var deletedIDs: Set<String> = []
+  /// Bumped by every `applyAnalysis`; an older, slower classification never overwrites a newer one.
+  @ObservationIgnored private var analysisGeneration = 0
 
   private static let onboardingKey = "hasCompletedOnboarding"
+  /// Assets analyzed per chunk; the cache is checkpointed between chunks (REV-7).
+  private static let chunkSize = 100
+  private static let checkpointInterval: Duration = .seconds(30)
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
@@ -91,6 +102,28 @@ final class AppModel {
     }
   }
 
+  /// Scene became active (E1, REV-20): picks up access changes made in Settings and screenshots
+  /// taken while the app was in the background.
+  func refreshAfterForeground() async {
+    guard hasCompletedOnboarding else { return }
+    let access = ScreenshotLibrary.currentAccess()
+    switch phase {
+    case .needsOnboarding, .needsPermission, .scanning:
+      return
+    case .denied:
+      await apply(access)
+    case .ready:
+      guard access.canRead, (access == .limited) == isLimitedAccess else {
+        await apply(access)
+        return
+      }
+      let count = await Task.detached(priority: .utility) {
+        ScreenshotLibrary.screenshotCount()
+      }.value
+      if count != screenshotCount { await rescan(full: false) }
+    }
+  }
+
   /// Extends a limited selection with the system picker, then rescans incrementally.
   func presentLimitedLibraryPicker() async {
     await library.presentLimitedLibraryPicker()
@@ -99,8 +132,9 @@ final class AppModel {
 
   // MARK: Scanning
 
-  /// Scans screenshots. `full == false` analyzes only assets missing from the cache;
-  /// `full == true` discards the cache first. Waits for any running scan to stop.
+  /// Scans screenshots. `full == false` analyzes only assets missing from the cache (or
+  /// analyzed in degraded quality); `full == true` discards the cache first and resets the
+  /// selection. Waits for any running scan to stop.
   func rescan(full: Bool) async {
     guard ScreenshotLibrary.currentAccess().canRead else {
       await apply(ScreenshotLibrary.currentAccess())
@@ -122,45 +156,86 @@ final class AppModel {
   }
 
   private func scan(full: Bool) async {
-    var cache: AnalysisCache
-    if full {
-      cache = AnalysisCache()
-      await Task.detached(priority: .utility) { AnalysisCache.deleteFile() }.value
-    } else if let loaded = self.cache {
-      cache = loaded
-    } else {
-      cache = await Task.detached(priority: .userInitiated) { AnalysisCache.load() }.value
-    }
+    var cache = await startingCache(full: full)
 
-    let assets = await Task.detached(priority: .userInitiated) {
+    library.forget()
+    let fetched = await Task.detached(priority: .userInitiated) {
       ScreenshotLibrary.fetchScreenshots()
     }.value
+    let assets = fetched.filter { !deletedIDs.contains($0.id) }
     screenshotCount = assets.count
-    cache.prune(keeping: Set(assets.map(\.id)))
-    let pending = assets.filter { cache.validEntry(for: $0) == nil }
-    Log.app.info("Scan: \(assets.count) screenshots, \(pending.count) to analyze, full=\(full)")
+    let pruned = cache.prune(keeping: Set(assets.map(\.id)))
+    let pending = assets.filter { cache.needsAnalysis($0) }
+    Log.app.info(
+      "Scan: \(assets.count) screenshots, \(pending.count) to analyze, full=\(full, privacy: .public)"
+    )
 
     // Show cached results right away; the scan continues behind them.
-    if !full, result == nil, !cache.entries.isEmpty {
-      await applyAnalysis(of: entries(of: cache, in: assets), resetSelection: true)
+    let hadResult = result != nil
+    if !full, !hadResult, !cache.entries.isEmpty {
+      await applyAnalysis(of: entries(of: cache, in: assets), reset: true)
     }
 
     let total = pending.count
     phase = .scanning(done: 0, total: total)
-    if !pending.isEmpty {
-      let output = await analyzer.analyze(pending) { [weak self] done in
-        await self?.reportProgress(done: done, total: total)
+    var unavailable: Set<String> = []
+    var done = 0
+    let clock = ContinuousClock()
+    var lastCheckpoint = clock.now
+    for start in stride(from: 0, to: pending.count, by: Self.chunkSize) {
+      if Task.isCancelled { break }
+      let chunk = Array(pending[start..<min(start + Self.chunkSize, pending.count)])
+      let offset = done
+      let output = await analyzer.analyze(chunk) { [weak self] processed in
+        await self?.reportProgress(done: offset + processed, total: total)
       }
-      for entry in output.analyzed { cache.entries[entry.features.id] = entry }
-      unavailableIDs = Set(output.unavailableIDs)
-    } else {
-      unavailableIDs = []
+      for entry in output.analyzed where !deletedIDs.contains(entry.features.id) {
+        cache.entries[entry.features.id] = entry
+      }
+      unavailable.formUnion(output.unavailableIDs)
+      done += chunk.count
+      // REV-7: checkpoint, so a killed app does not lose minutes of work.
+      if clock.now - lastCheckpoint >= Self.checkpointInterval {
+        cache.remove(deletedIDs)
+        await persist(cache)
+        lastCheckpoint = clock.now
+      }
     }
 
+    // REV-6: deletions made while this scan ran must not come back.
+    cache.remove(deletedIDs)
+    let liveAssets = assets.filter { !deletedIDs.contains($0.id) }
+    unavailableIDs = unavailable.subtracting(deletedIDs)
+    screenshotCount = liveAssets.count
     self.cache = cache
-    await persist(cache)
-    await applyAnalysis(of: entries(of: cache, in: assets), resetSelection: true)
+
+    // REV-11: nothing new and the cached result is already shown → skip reclassifying.
+    if full || !pending.isEmpty || pruned || !hadResult {
+      await persist(cache)
+      await applyAnalysis(of: entries(of: cache, in: liveAssets), reset: full || result == nil)
+    }
     phase = .ready
+  }
+
+  /// The cache a scan starts from: empty for a full rescan, else the in-memory or stored one.
+  private func startingCache(full: Bool) async -> AnalysisCache {
+    if full {
+      if canPersistCache {
+        await Task.detached(priority: .utility) { AnalysisCache.deleteFile() }.value
+      }
+      return AnalysisCache()
+    }
+    if let cache { return cache }
+    let loaded = await Task.detached(priority: .userInitiated) { AnalysisCache.load() }.value
+    switch loaded {
+    case .loaded(let cache):
+      canPersistCache = true
+      return cache
+    case .unavailable:
+      // REV-14: never overwrite an unreadable (e.g. locked) file; work in memory this session.
+      canPersistCache = false
+      return AnalysisCache()
+    }
   }
 
   private func reportProgress(done: Int, total: Int) {
@@ -176,6 +251,7 @@ final class AppModel {
   }
 
   private func persist(_ cache: AnalysisCache) async {
+    guard canPersistCache else { return }
     do {
       try await Task.detached(priority: .utility) { try cache.save() }.value
     } catch {
@@ -185,28 +261,38 @@ final class AppModel {
 
   // MARK: Analysis
 
-  private func applyAnalysis(of entries: [AnalyzedScreenshot], resetSelection: Bool) async {
+  /// Classifies `entries` off the main actor and publishes the result. `reset` starts the
+  /// selection over (first result, full rescan); otherwise the user's choices are merged in.
+  private func applyAnalysis(of entries: [AnalyzedScreenshot], reset: Bool) async {
+    analysisGeneration += 1
+    let generation = analysisGeneration
     let now = Date()
     let analysis = await Task.detached(priority: .userInitiated) {
       AppModel.classify(entries, now: now)
     }.value
+    // A newer analysis (e.g. after a deletion) started meanwhile; it wins.
+    guard generation == analysisGeneration else { return }
 
     featuresByID = Dictionary(
       entries.map { ($0.features.id, $0.features) }, uniquingKeysWith: { first, _ in first })
     var sizes: [String: Int64] = [:]
+    var undated: Set<String> = []
     for entry in entries {
       if let size = entry.features.fileSize { sizes[entry.features.id] = size }
+      if !CaptureDate.isKnown(entry.features.createdAt) { undated.insert(entry.features.id) }
     }
     self.sizes = sizes
     result = analysis
 
-    if resetSelection {
-      selection = analysis.preselectedForDeletion()
-      swipeQueue = Self.swipeOrder(for: analysis)
+    // REV-4: a screenshot without a capture date is never preselected.
+    let preselected = analysis.preselectedForDeletion().subtracting(undated)
+    let known = Set(featuresByID.keys)
+    if reset {
+      selectionState.reset(knownIDs: known, preselected: preselected)
     } else {
-      selection = selection.filter { featuresByID[$0] != nil }
-      swipeQueue = swipeQueue.filter { featuresByID[$0] != nil }
+      selectionState.merge(knownIDs: known, preselected: preselected)
     }
+    swipeQueue = Self.swipeOrder(for: analysis)
   }
 
   /// Runs `LibraryAnalyzer` with a feature-print distance. Off the main actor.
@@ -234,29 +320,58 @@ final class AppModel {
     return suggested(.delete) + suggested(.review)
   }
 
+  // MARK: Selection (explicit user choices; a rescan never overrides them)
+
+  func toggleSelection(_ id: String) {
+    selectionState.toggle(id)
+  }
+
+  func setSelected(_ isSelected: Bool, for ids: some Sequence<String>) {
+    selectionState.setSelected(isSelected, for: ids)
+  }
+
+  /// Keeper shown for `cluster`: the user's choice if any, else the Core keeper (REV-9).
+  func keeper(of cluster: Cluster) -> String {
+    selectionState.keeper(forCoreKeeper: cluster.keeperID, members: cluster.memberIDs)
+  }
+
+  /// The user picks a new keeper: it is deselected. For exact duplicates the previous keeper is
+  /// selected instead, unless it is a receipt. Near duplicates are never auto-selected.
+  func setKeeper(_ newKeeper: String, in cluster: Cluster) {
+    let oldKeeper = keeper(of: cluster)
+    let oldIsReceipt = result?.verdicts[oldKeeper]?.category == .transferReceipt
+    selectionState.setKeeper(
+      newKeeper, coreKeeperID: cluster.keeperID, members: cluster.memberIDs,
+      selectPreviousKeeper: cluster.kind == .exact && !oldIsReceipt)
+  }
+
   // MARK: Actions
 
-  /// Deletes `ids` after the iOS confirmation dialog (one dialog per batch). Deleted photos go to
-  /// "Recently Deleted". Returns the number deleted; `0` if the user cancelled the dialog.
-  func delete(_ ids: Set<String>) async throws -> Int {
-    let deleted = try await ScreenshotLibrary.deleteAssets(withIDs: Array(ids))
-    guard deleted > 0 else { return 0 }
+  /// Deletes `ids` after the iOS confirmation dialog (one `PHAssetChangeRequest` batch, one
+  /// dialog). Deleted photos go to "Recently Deleted".
+  func delete(_ ids: Set<String>) async throws -> DeleteResult {
+    let outcome = try await ScreenshotLibrary.deleteAssets(withIDs: Array(ids))
+    if outcome == .cancelled { return outcome }
 
-    if var cache {
-      cache.remove(ids)
-      self.cache = cache
-      await persist(cache)
-    }
-    screenshotCount = max(0, screenshotCount - deleted)
+    // `.deleted` or `.nothingToDelete`: none of `ids` exist any more.
+    let removedCount = ids.intersection(featuresByID.keys).count
+    deletedIDs.formUnion(ids)
+    library.forget(ids)
+    screenshotCount = max(0, screenshotCount - removedCount)
     unavailableIDs.subtract(ids)
-    selection.subtract(ids)
+    selectionState.remove(ids)
     swipeQueue.removeAll { ids.contains($0) }
-    let remaining = (cache?.entries.values).map(Array.init) ?? []
-    let ordered = remaining.sorted {
+    // During the very first scan there is no in-memory cache yet; that scan drops `deletedIDs`
+    // and publishes the reconciled result when it ends.
+    guard var cache else { return outcome }
+    cache.remove(ids)
+    self.cache = cache
+    await persist(cache)
+    let ordered = cache.entries.values.sorted {
       ($0.features.createdAt, $0.features.id) < ($1.features.createdAt, $1.features.id)
     }
-    await applyAnalysis(of: ordered, resetSelection: false)
-    return deleted
+    await applyAnalysis(of: ordered, reset: false)
+    return outcome
   }
 
   /// Thumbnail for a screenshot. `size` is in pixels (points × display scale).
@@ -267,5 +382,11 @@ final class AppModel {
   /// Raw features of a screenshot (Debug screen).
   func features(for id: String) -> ScreenshotFeatures? {
     featuresByID[id]
+  }
+
+  /// Capture date for display; `nil` when PhotoKit had none (REV-4).
+  func captureDate(for id: String) -> Date? {
+    guard let date = featuresByID[id]?.createdAt, CaptureDate.isKnown(date) else { return nil }
+    return date
   }
 }

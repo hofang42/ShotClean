@@ -101,14 +101,17 @@ struct ScreenshotAnalyzer: Sendable {
       let phAsset = PHAsset.fetchAssets(withLocalIdentifiers: [asset.id], options: nil).firstObject
     else { return .unavailable(asset.id) }
     guard let image = await loadImage(for: phAsset) else {
+      if Task.isCancelled { return .skipped }
       Log.analysis.debug("No local image for an asset")
       return .unavailable(asset.id)
     }
     let vision = runVision(on: image)
     let digest = await sha256(of: phAsset)
+    if Task.isCancelled { return .skipped }
     let features = ScreenshotFeatures(
       id: asset.id,
-      createdAt: asset.creationDate ?? .distantPast,
+      // REV-4: a missing date becomes the Core's "unknown" sentinel, never a fake old age.
+      createdAt: asset.creationDate ?? CaptureDate.unknown,
       pixelSize: PixelSize(width: asset.pixelWidth, height: asset.pixelHeight),
       fileSize: digest?.byteCount,
       text: vision.text,
@@ -119,7 +122,9 @@ struct ScreenshotAnalyzer: Sendable {
       AnalyzedScreenshot(
         features: features,
         modificationDate: asset.modificationDate,
-        featurePrint: vision.featurePrint
+        featurePrint: vision.featurePrint,
+        // REV-5: a thumbnail-only analysis or a missing hash is retried on the next scan.
+        isDegraded: image.isDegraded || digest == nil
       ))
   }
 
@@ -128,17 +133,27 @@ struct ScreenshotAnalyzer: Sendable {
   private struct LoadedImage {
     let cgImage: CGImage
     let orientation: CGImagePropertyOrientation
+    /// Loaded from a low-quality local thumbnail (risk R4); OCR is likely incomplete.
+    let isDegraded: Bool
+  }
+
+  private struct RequestedImage: Sendable {
+    let image: UIImage
+    let isDegraded: Bool
   }
 
   private static func loadImage(for asset: PHAsset) async -> LoadedImage? {
     let targetSize = analysisSize(width: asset.pixelWidth, height: asset.pixelHeight)
     // Best local rendition first; fall back to whatever local thumbnail exists (risk R4).
     for mode in [PHImageRequestOptionsDeliveryMode.highQualityFormat, .fastFormat] {
-      if let image = await requestImage(for: asset, targetSize: targetSize, deliveryMode: mode),
-        let cgImage = image.cgImage
+      if Task.isCancelled { return nil }
+      if let requested = await requestImage(for: asset, targetSize: targetSize, deliveryMode: mode),
+        let cgImage = requested.image.cgImage
       {
         return LoadedImage(
-          cgImage: cgImage, orientation: CGImagePropertyOrientation(image.imageOrientation))
+          cgImage: cgImage,
+          orientation: CGImagePropertyOrientation(requested.image.imageOrientation),
+          isDegraded: mode != .highQualityFormat || requested.isDegraded)
       }
     }
     return nil
@@ -153,31 +168,27 @@ struct ScreenshotAnalyzer: Sendable {
       width: (CGFloat(width) * scale).rounded(), height: (CGFloat(height) * scale).rounded())
   }
 
+  /// Resumes on the first callback (a second or degraded-only callback can never hang or
+  /// double-resume) and cancels the PhotoKit request when the task is cancelled (REV-16).
   private static func requestImage(
     for asset: PHAsset,
     targetSize: CGSize,
     deliveryMode: PHImageRequestOptionsDeliveryMode
-  ) async -> UIImage? {
-    let options = PHImageRequestOptions()
-    options.deliveryMode = deliveryMode
-    options.resizeMode = .fast
-    options.version = .current
-    options.isNetworkAccessAllowed = false
-    options.isSynchronous = false
-    // Both modes call the handler once when asynchronous; resume on the first call anyway so a
-    // second (or degraded-only) callback can never hang or double-resume the continuation.
-    return await withCheckedContinuation { continuation in
-      let resumed = OSAllocatedUnfairLock(initialState: false)
-      PHImageManager.default().requestImage(
+  ) async -> RequestedImage? {
+    await PhotoRequest<RequestedImage?>().run(cancelledValue: nil) { finish in
+      let options = PHImageRequestOptions()
+      options.deliveryMode = deliveryMode
+      options.resizeMode = .fast
+      options.version = .current
+      options.isNetworkAccessAllowed = false
+      options.isSynchronous = false
+      let requestID = PHImageManager.default().requestImage(
         for: asset, targetSize: targetSize, contentMode: .aspectFit, options: options
-      ) { image, _ in
-        let isFirst = resumed.withLock { alreadyResumed in
-          defer { alreadyResumed = true }
-          return !alreadyResumed
-        }
-        guard isFirst else { return }
-        continuation.resume(returning: image)
+      ) { image, info in
+        let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
+        finish(image.map { RequestedImage(image: $0, isDegraded: isDegraded) })
       }
+      return { PHImageManager.default().cancelImageRequest(requestID) }
     }
   }
 
@@ -226,6 +237,9 @@ struct ScreenshotAnalyzer: Sendable {
       barcodeRequest.symbologies = [.qr]
 
       let printRequest = VNGenerateImageFeaturePrintRequest()
+      // REV-12: pin the revision; `nearDupMaxDistance` is tuned for it and cached prints must
+      // stay comparable across OS updates (a revision change bumps `AnalysisCache.formatVersion`).
+      printRequest.revision = VNGenerateImageFeaturePrintRequestRevision2
 
       // Separate perform calls so one failing request does not discard the others.
       if perform(textRequest, on: handler) {
@@ -265,19 +279,21 @@ struct ScreenshotAnalyzer: Sendable {
     let byteCount: Int64
   }
 
-  /// Streams the original resource through SHA-256. `nil` when the original is not on device.
+  /// Streams the current rendition through SHA-256. `nil` when it is not on device.
+  ///
+  /// REV-3: `.fullSizePhoto` is the rendered image *with* edits and exists only for edited
+  /// assets; `.photo` is the unedited original. Hashing `.photo` for an edited asset would make
+  /// an edited copy "identical" to its original. Never fall back to an arbitrary resource.
   private static func sha256(of asset: PHAsset) async -> Digest? {
     let resources = PHAssetResource.assetResources(for: asset)
-    guard
-      let resource = resources.first(where: { $0.type == .photo })
-        ?? resources.first(where: { $0.type == .fullSizePhoto }) ?? resources.first
-    else { return nil }
+    let wanted: PHAssetResourceType = asset.hasAdjustments ? .fullSizePhoto : .photo
+    guard let resource = resources.first(where: { $0.type == wanted }) else { return nil }
 
-    let options = PHAssetResourceRequestOptions()
-    options.isNetworkAccessAllowed = false
     let state = OSAllocatedUnfairLock(uncheckedState: HashState())
-    return await withCheckedContinuation { continuation in
-      PHAssetResourceManager.default().requestData(
+    return await PhotoRequest<Digest?>().run(cancelledValue: nil) { finish in
+      let options = PHAssetResourceRequestOptions()
+      options.isNetworkAccessAllowed = false
+      let requestID = PHAssetResourceManager.default().requestData(
         for: resource, options: options,
         dataReceivedHandler: { chunk in
           state.withLockUnchecked { $0.update(chunk) }
@@ -285,12 +301,13 @@ struct ScreenshotAnalyzer: Sendable {
         completionHandler: { error in
           if let error {
             Log.analysis.debug(
-              "Original not available locally: \(error.localizedDescription, privacy: .public)")
-            continuation.resume(returning: nil)
+              "Rendition not available locally: \(error.localizedDescription, privacy: .public)")
+            finish(nil)
           } else {
-            continuation.resume(returning: state.withLockUnchecked { $0.finalize() })
+            finish(state.withLockUnchecked { $0.finalize() })
           }
         })
+      return { PHAssetResourceManager.default().cancelDataRequest(requestID) }
     }
   }
 

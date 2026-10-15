@@ -10,11 +10,17 @@ struct SwipeCard: View {
   let dateText: String?
   let accessibilityText: String
   var isInteractive = true
+  /// Called once per decision. Swipes call it after the fly-away animation; VoiceOver actions
+  /// call it immediately.
   let onDecision: (SwipeAction) -> Void
+  /// Called when a swipe decision starts animating, so the parent can block other input (REV-2).
+  var onLeave: () -> Void = {}
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var offset: CGSize = .zero
-  @State private var isLeaving = false
+  /// Set while the card flies away; the decision is delivered by `.task(id:)`, which is
+  /// cancelled if the card leaves the hierarchy first (REV-2).
+  @State private var leavingAction: SwipeAction?
 
   private let threshold: CGFloat = 110
 
@@ -47,12 +53,21 @@ struct SwipeCard: View {
     .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
     .offset(x: offset.width, y: reduceMotion ? 0 : offset.height * 0.2)
     .rotationEffect(.degrees(reduceMotion ? 0 : Double(offset.width) / 25))
-    .gesture(drag, including: isInteractive && !isLeaving ? .all : .subviews)
+    .gesture(drag, including: isInteractive && leavingAction == nil ? .all : .subviews)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityText)
     .accessibilityHint(Strings.Swipe.hint)
-    .accessibilityAction(named: Strings.keep) { onDecision(.keep) }
-    .accessibilityAction(named: Strings.delete) { onDecision(.delete) }
+    .accessibilityAction(named: Strings.keep) { decideNow(.keep) }
+    .accessibilityAction(named: Strings.delete) { decideNow(.delete) }
+    .task(id: leavingAction) {
+      guard let action = leavingAction else { return }
+      do {
+        try await Task.sleep(for: .milliseconds(200))
+      } catch {
+        return
+      }
+      onDecision(action)
+    }
   }
 
   @ViewBuilder private var decisionOverlay: some View {
@@ -104,18 +119,21 @@ struct SwipeCard: View {
   }
 
   private func finish(_ action: SwipeAction) {
+    guard leavingAction == nil else { return }
     guard !reduceMotion else {
       onDecision(action)
       return
     }
-    isLeaving = true
+    onLeave()
     let direction: CGFloat = action == .delete ? -1 : 1
     withAnimation(.easeIn(duration: 0.2)) {
       offset = CGSize(width: direction * 600, height: offset.height)
     }
-    Task {
-      try? await Task.sleep(for: .milliseconds(200))
-      onDecision(action)
-    }
+    leavingAction = action
+  }
+
+  private func decideNow(_ action: SwipeAction) {
+    guard isInteractive, leavingAction == nil else { return }
+    onDecision(action)
   }
 }

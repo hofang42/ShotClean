@@ -10,6 +10,8 @@ struct OverviewView: View {
     var bytes: [ShotCategory: Int64] = [:]
     var candidateCount = 0
     var candidateBytes: Int64 = 0
+    /// All cleanable candidates, including near duplicates that need review.
+    var reviewCount = 0
   }
 
   @Environment(AppModel.self) private var model
@@ -145,6 +147,8 @@ struct OverviewView: View {
       Group {
         if summary.candidateCount > 0 {
           Text(Strings.Overview.reclaimable(Format.bytes(summary.candidateBytes)))
+        } else if summary.reviewCount > 0 {
+          Text(Strings.Overview.needsReview)
         } else {
           Text(Strings.Overview.nothingToClean)
         }
@@ -154,7 +158,7 @@ struct OverviewView: View {
       .monospacedDigit()
       .contentTransition(.numericText())
 
-      if summary.candidateCount > 0 {
+      if summary.reviewCount > 0 {
         ReclaimBar(
           segments: ShotCategory.cleanable.map { category in
             ReclaimBar.Segment(
@@ -183,6 +187,10 @@ struct OverviewView: View {
       let bytes = result.reclaimableBytes(ids, sizes: model.sizes)
       summary.counts[category] = ids.count
       summary.bytes[category] = bytes
+      summary.reviewCount += ids.count
+      // REV-18: the headline promises only what can be cleaned without review; near
+      // duplicates are never preselected, so they are shown as a card ("Cần bạn xem") only.
+      guard category != .nearDuplicate else { continue }
       summary.candidateCount += ids.count
       summary.candidateBytes += bytes
     }

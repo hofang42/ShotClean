@@ -77,7 +77,7 @@ struct CompareView: View {
         .font(.caption.weight(.semibold))
         .foregroundStyle(isKeeper ? Theme.keep : Color.secondary)
       if let features {
-        Text(Format.date(features.createdAt))
+        Text(model.captureDate(for: id).map(Format.date) ?? Strings.Detail.unknown)
           .font(.caption2)
           .foregroundStyle(.secondary)
         Text("\(features.pixelSize.width) × \(features.pixelSize.height)")

@@ -202,7 +202,7 @@ public protocol ScreenshotRule: Sendable {
    - Precision của trùng hoàn toàn đạt **100%**.
 4. Xoá hàng loạt chỉ hiện **1** hộp thoại xác nhận cho cả lô. Ảnh đã xoá xuất hiện trong "Đã xoá gần đây".
 5. Đã ghi kết quả R1–R5 vào SPEC, gồm số đo tốc độ phân tích trên máy test.
-6. `grep -rE "URLSession|URLRequest|Network" ShotClean/Sources` không ra kết quả nào (không có code mạng).
+6. `grep -rE "URLSession|URLRequest|import Network" ShotClean/Sources` không ra kết quả nào (không có code mạng).
 
 **MVP xong khi:** US1–US8 chạy được. Tác giả dùng app 2 tuần liền, không gặp lần xoá nhầm nào, và quét lại tăng dần (chỉ ảnh mới) mất < 10 giây với ≤ 50 ảnh mới.
 

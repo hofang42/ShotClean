@@ -98,7 +98,7 @@ struct DebugView: View {
           Text(row.verdict.reason)
             .font(.footnote)
         }
-        if let date = model.features(for: row.id)?.createdAt {
+        if let date = model.captureDate(for: row.id) {
           Text(Format.date(date))
             .font(.caption)
             .foregroundStyle(.secondary)

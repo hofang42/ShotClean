@@ -36,7 +36,15 @@ enum PhotoAccess: Sendable, Equatable {
 /// PhotoKit may call them on background queues.
 @MainActor
 final class ScreenshotLibrary {
-  private let imageManager = PHCachingImageManager()
+  /// `PHAsset`s by id, so grid cells do not hit the photo database once per cell (REV-8).
+  /// Only touched on the main actor; never sent to another isolation domain.
+  private var assets: [String: PHAsset] = [:]
+  /// Decoded thumbnails keyed by id and pixel size.
+  private let thumbnails: NSCache<NSString, UIImage> = {
+    let cache = NSCache<NSString, UIImage>()
+    cache.totalCostLimit = 64 * 1024 * 1024
+    return cache
+  }()
 
   // MARK: Authorization
 
@@ -70,11 +78,7 @@ final class ScreenshotLibrary {
 
   /// All screenshots visible to the app, oldest first. Synchronous; call off the main actor.
   nonisolated static func fetchScreenshots() -> [ScreenshotAsset] {
-    let options = PHFetchOptions()
-    options.predicate = NSPredicate(
-      format: "(mediaSubtypes & %ld) != 0", Int(PHAssetMediaSubtype.photoScreenshot.rawValue))
-    options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
-    let result = PHAsset.fetchAssets(with: .image, options: options)
+    let result = PHAsset.fetchAssets(with: .image, options: screenshotFetchOptions())
     var assets: [ScreenshotAsset] = []
     assets.reserveCapacity(result.count)
     for index in 0..<result.count {
@@ -92,46 +96,88 @@ final class ScreenshotLibrary {
     return assets
   }
 
+  /// Number of screenshots visible to the app (cheap; used to detect changes on foreground).
+  nonisolated static func screenshotCount() -> Int {
+    PHAsset.fetchAssets(with: .image, options: screenshotFetchOptions()).count
+  }
+
+  private nonisolated static func screenshotFetchOptions() -> PHFetchOptions {
+    let options = PHFetchOptions()
+    options.predicate = NSPredicate(
+      format: "(mediaSubtypes & %ld) != 0", Int(PHAssetMediaSubtype.photoScreenshot.rawValue))
+    options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
+    return options
+  }
+
   // MARK: Thumbnails
 
   /// Thumbnail for `id`. `size` is in pixels (points × display scale). Local data only.
+  /// Cached in memory; the PhotoKit request is cancelled when the calling task is (REV-8).
   func thumbnail(for id: String, size: CGSize) async -> UIImage? {
-    guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
-    else { return nil }
-    let manager = imageManager
-    return await withCheckedContinuation { continuation in
-      Self.requestThumbnail(
-        manager: manager, asset: asset, size: size, continuation: continuation)
+    let key = "\(id)|\(Int(size.width))x\(Int(size.height))" as NSString
+    if let cached = thumbnails.object(forKey: key) { return cached }
+    guard let asset = asset(for: id) else { return nil }
+    let image = await PhotoRequest<UIImage?>().run(cancelledValue: nil) { finish in
+      Self.startThumbnailRequest(asset: asset, size: size, finish: finish)
     }
+    if let image, !Task.isCancelled {
+      let cost = Int(image.size.width * image.scale * image.size.height * image.scale * 4)
+      thumbnails.setObject(image, forKey: key, cost: cost)
+    }
+    return image
   }
 
-  private nonisolated static func requestThumbnail(
-    manager: PHCachingImageManager,
+  /// Forgets cached assets and thumbnails (after deletion or a rescan).
+  func forget(_ ids: Set<String>? = nil) {
+    guard let ids else {
+      assets.removeAll()
+      thumbnails.removeAllObjects()
+      return
+    }
+    for id in ids { assets[id] = nil }
+    // NSCache cannot enumerate keys; deleted ids are never requested again, so a full flush is
+    // only needed when an asset might have changed (rescan).
+  }
+
+  private func asset(for id: String) -> PHAsset? {
+    if let asset = assets[id] { return asset }
+    guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
+    else { return nil }
+    assets[id] = asset
+    return asset
+  }
+
+  /// Formed in nonisolated code: PhotoKit calls the handler on its own queue.
+  private nonisolated static func startThumbnailRequest(
     asset: PHAsset,
     size: CGSize,
-    continuation: CheckedContinuation<UIImage?, Never>
-  ) {
+    finish: @escaping @Sendable (UIImage?) -> Void
+  ) -> @Sendable () -> Void {
     let options = PHImageRequestOptions()
-    // `.highQualityFormat` + asynchronous → the handler is called exactly once.
+    // `.highQualityFormat` + asynchronous → the handler is called once (extra calls are ignored).
     options.deliveryMode = .highQualityFormat
     options.resizeMode = .fast
     options.isNetworkAccessAllowed = false
     options.isSynchronous = false
-    manager.requestImage(
+    let requestID = PHImageManager.default().requestImage(
       for: asset, targetSize: size, contentMode: .aspectFill, options: options
     ) { image, _ in
-      continuation.resume(returning: image)
+      finish(image)
     }
+    return { PHImageManager.default().cancelImageRequest(requestID) }
   }
 
   // MARK: Deletion
 
-  /// Deletes the assets with `ids`. iOS shows its own confirmation dialog for the whole batch.
-  /// - Returns: number of assets deleted; `0` when the user cancels the system dialog.
-  nonisolated static func deleteAssets(withIDs ids: [String]) async throws -> Int {
-    guard !ids.isEmpty else { return 0 }
+  /// Deletes the assets with `ids` in one `PHAssetChangeRequest` batch. iOS shows its own
+  /// confirmation dialog for the whole batch.
+  nonisolated static func deleteAssets(withIDs ids: [String]) async throws -> DeleteResult {
+    guard !ids.isEmpty else { return .nothingToDelete }
     let count = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil).count
-    guard count > 0 else { return 0 }
+    guard count > 0 else {
+      Log.library.info("None of \(ids.count) assets exist any more")
+      return .nothingToDelete
+    }
     do {
       try await PHPhotoLibrary.shared().performChanges {
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
@@ -139,9 +185,9 @@ final class ScreenshotLibrary {
       }
     } catch let error as PHPhotosError where error.code == .userCancelled {
       Log.library.info("User cancelled deletion of \(count) assets")
-      return 0
+      return .cancelled
     }
     Log.library.info("Deleted \(count) assets")
-    return count
+    return .deleted(count)
   }
 }

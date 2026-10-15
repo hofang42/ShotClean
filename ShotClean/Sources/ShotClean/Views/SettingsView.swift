@@ -79,9 +79,12 @@ struct SettingsView: View {
         }
         .disabled(isScanning)
 
-        NavigationLink(value: Route.debug) {
-          Label(Strings.Settings.debug, systemImage: "ladybug")
-        }
+        // REV-22: the Debug screen lists OCR text; keep it out of release builds.
+        #if DEBUG
+          NavigationLink(value: Route.debug) {
+            Label(Strings.Settings.debug, systemImage: "ladybug")
+          }
+        #endif
 
         LabeledContent(Strings.Settings.version, value: version)
       }

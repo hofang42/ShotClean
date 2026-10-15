@@ -42,8 +42,11 @@ struct ScreenshotDetailView: View {
           }
         }
         if let features {
-          LabeledContent(Strings.Detail.captured, value: Format.date(features.createdAt))
-            .accessibilityValue(Format.spokenDate(features.createdAt))
+          let date = model.captureDate(for: id)
+          LabeledContent(
+            Strings.Detail.captured, value: date.map(Format.date) ?? Strings.Detail.unknown
+          )
+          .accessibilityValue(date.map(Format.spokenDate) ?? Strings.Detail.unknown)
           LabeledContent(
             Strings.Detail.size,
             value: features.fileSize.map(Format.bytes) ?? Strings.Detail.unknown)
@@ -53,14 +56,17 @@ struct ScreenshotDetailView: View {
         }
       }
 
-      if let features {
-        Section(Strings.Detail.ocrText) {
-          Text(features.text.isEmpty ? Strings.Detail.noText : features.text)
-            .font(.footnote.monospaced())
-            .foregroundStyle(features.text.isEmpty ? .secondary : .primary)
-            .textSelection(.enabled)
+      // REV-22: OCR text (may include bank receipts) is shown only in debug builds.
+      #if DEBUG
+        if let features {
+          Section(Strings.Detail.ocrText) {
+            Text(features.text.isEmpty ? Strings.Detail.noText : features.text)
+              .font(.footnote.monospaced())
+              .foregroundStyle(features.text.isEmpty ? .secondary : .primary)
+              .textSelection(.enabled)
+          }
         }
-      }
+      #endif
     }
     .navigationTitle(Strings.Detail.title)
     .navigationBarTitleDisplayMode(.inline)
@@ -70,11 +76,7 @@ struct ScreenshotDetailView: View {
           isSelected ? Strings.Detail.deselect : Strings.Detail.select,
           systemImage: isSelected ? "checkmark.circle.fill" : "circle"
         ) {
-          if isSelected {
-            model.selection.remove(id)
-          } else {
-            model.selection.insert(id)
-          }
+          model.toggleSelection(id)
         }
       }
     }

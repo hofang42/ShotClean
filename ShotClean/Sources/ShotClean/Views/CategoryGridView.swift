@@ -82,9 +82,9 @@ struct CategoryGridView: View {
         let showsSelectNone = !selected.isEmpty && (!canSelectAll || selected.count == ids.count)
         Button(showsSelectNone ? Strings.Grid.selectNone : Strings.Grid.selectAll) {
           if showsSelectNone {
-            model.selection.subtract(ids)
+            model.setSelected(false, for: selected)
           } else {
-            model.selection.formUnion(ids)
+            model.setSelected(true, for: ids)
           }
         }
         .disabled(ids.isEmpty || (!canSelectAll && selected.isEmpty))
@@ -112,15 +112,11 @@ struct CategoryGridView: View {
   }
 
   private func toggle(_ id: String) {
-    if model.selection.contains(id) {
-      model.selection.remove(id)
-    } else {
-      model.selection.insert(id)
-    }
+    model.toggleSelection(id)
   }
 
   private func date(of id: String) -> Date {
-    model.features(for: id)?.createdAt ?? .distantPast
+    model.captureDate(for: id) ?? CaptureDate.unknown
   }
 
   private func reason(of id: String) -> String {
@@ -131,7 +127,7 @@ struct CategoryGridView: View {
     var parts = [category.title]
     let reason = reason(of: id)
     if !reason.isEmpty { parts.append(reason) }
-    if let date = model.features(for: id)?.createdAt {
+    if let date = model.captureDate(for: id) {
       parts.append(Strings.Swipe.captured(Format.spokenDate(date)))
     }
     return parts.joined(separator: ". ")

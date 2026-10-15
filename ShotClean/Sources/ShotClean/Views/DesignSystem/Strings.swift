@@ -113,7 +113,8 @@ enum Strings {
       "Các ảnh gần giống nhau. Không ảnh nào được chọn sẵn — bạn tự quyết định."
     static let keeperTag = "Giữ"
     static let keeperOldest = "Cũ nhất"
-    static let keeperSharpest = "Nét nhất"
+    /// Core keeper rule for near duplicates: largest pixel area, ties → oldest (REV-19).
+    static let keeperLargest = "Lớn nhất"
     static let keeperChosen = "Bạn chọn"
     static let compare = "So sánh"
     static let selectOthers = "Chọn các ảnh còn lại"
@@ -153,6 +154,7 @@ enum Strings {
       "Ảnh sẽ nằm trong \"Đã xoá gần đây\" 30 ngày. iOS sẽ hỏi bạn xác nhận thêm một lần."
     static let confirm = "Xoá"
     static let cancelled = "Bạn đã huỷ trên hộp thoại của iOS. Chưa xoá ảnh nào."
+    static let nothingToDelete = "Các ảnh này không còn trong thư viện. Không có gì để xoá."
     static func failed(_ message: String) -> String { "Không xoá được: \(message)" }
     static let resultTitle = "Đã dọn xong"
     static func resultCount(_ count: String) -> String { "Đã chuyển \(count) ảnh vào thùng rác" }

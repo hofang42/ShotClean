@@ -4,6 +4,10 @@
 <dict>
 	<key>CFBundleDisplayName</key>
 	<string>ShotClean</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ShotClean quét ảnh chụp màn hình ngay trên máy để gợi ý xoá. Ảnh không bao giờ rời khỏi iPhone.</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>

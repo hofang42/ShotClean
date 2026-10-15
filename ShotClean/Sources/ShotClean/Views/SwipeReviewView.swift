@@ -22,6 +22,8 @@ struct SwipeReviewView: View {
   @State private var items: [String]?
   @State private var history: [Decision] = []
   @State private var feedback = FeedbackEvent()
+  /// Card whose swipe decision is still animating; other input waits until it lands (REV-2).
+  @State private var leavingID: String?
 
   var body: some View {
     let queue = items ?? []
@@ -67,7 +69,7 @@ struct SwipeReviewView: View {
         Button(Strings.done) {
           router.requestDeletion(of: Set(deleteIDs))
         }
-        .disabled(deleteIDs.isEmpty)
+        .disabled(deleteIDs.isEmpty || leavingID != nil)
       }
     }
     .safeAreaInset(edge: .bottom) {
@@ -80,7 +82,7 @@ struct SwipeReviewView: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(Theme.destructive)
-        .disabled(position >= queue.count)
+        .disabled(position >= queue.count || leavingID != nil)
 
         Button {
           undo()
@@ -89,7 +91,7 @@ struct SwipeReviewView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .disabled(history.isEmpty)
+        .disabled(history.isEmpty || leavingID != nil)
 
         Button {
           decide(.keep)
@@ -99,7 +101,7 @@ struct SwipeReviewView: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(Theme.keep)
-        .disabled(position >= queue.count)
+        .disabled(position >= queue.count || leavingID != nil)
       }
     }
     .sensoryFeedback(trigger: feedback) { _, event in
@@ -141,7 +143,7 @@ struct SwipeReviewView: View {
 
   private func card(for id: String, isInteractive: Bool) -> some View {
     let verdict = model.result?.verdicts[id]
-    let date = model.features(for: id)?.createdAt
+    let date = model.captureDate(for: id)
     let title = verdict?.category.title ?? ""
     let reason = verdict?.reason ?? ""
     var spoken = [title, reason].filter { !$0.isEmpty }
@@ -154,13 +156,23 @@ struct SwipeReviewView: View {
       dateText: date.map { Strings.Swipe.captured(Format.date($0)) },
       accessibilityText: spoken.joined(separator: ". "),
       isInteractive: isInteractive,
-      onDecision: decide
+      onDecision: { action in decide(action, for: id) },
+      onLeave: { leavingID = id }
     )
   }
 
-  private func decide(_ action: SwipeAction) {
+  /// Queues `action` for the current card. `cardID` binds a card callback to the card it came
+  /// from: a late callback for a card that is no longer current is ignored, so a decision can
+  /// never land on a card the user has not seen (REV-2). Buttons pass `nil`.
+  private func decide(_ action: SwipeAction, for cardID: String? = nil) {
     guard let items, history.count < items.count else { return }
     let id = items[history.count]
+    if let cardID {
+      guard cardID == id else { return }
+      if leavingID == cardID { leavingID = nil }
+    } else if leavingID != nil {
+      return
+    }
     withAnimation(reduceMotion ? nil : .snappy) {
       history.append(Decision(id: id, action: action))
     }
@@ -168,7 +180,7 @@ struct SwipeReviewView: View {
   }
 
   private func undo() {
-    guard !history.isEmpty else { return }
+    guard !history.isEmpty, leavingID == nil else { return }
     withAnimation(reduceMotion ? nil : .snappy) {
       _ = history.removeLast()
     }
