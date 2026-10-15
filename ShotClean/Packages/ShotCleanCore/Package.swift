@@ -11,7 +11,8 @@ let package = Package(
     .target(name: "ShotCleanCore"),
     .testTarget(
       name: "ShotCleanCoreTests",
-      dependencies: ["ShotCleanCore"]
+      dependencies: ["ShotCleanCore"],
+      resources: [.copy("Fixtures")]
     ),
   ],
   swiftLanguageModes: [.v6]

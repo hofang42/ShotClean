@@ -1,0 +1,9 @@
+TPBank
+Transfer successful
+Amount 1,500,000 VND
+To: VU THANH HA
+Account number 0203 4455 667
+Bank: BIDV
+Transaction ID TP26281234567
+Message: VU THANH HA tra no
+09 Oct 2026 16:20

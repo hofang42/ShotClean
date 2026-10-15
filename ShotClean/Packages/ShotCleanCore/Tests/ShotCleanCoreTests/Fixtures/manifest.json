@@ -1,0 +1,334 @@
+[
+  {
+    "file": "receipt_vcb_diacritics.txt",
+    "createdAt": "2025-12-20T14:33:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "Vietcombank, full diacritics, VND, screenshot > 300 days old"
+  },
+  {
+    "file": "receipt_mb_no_diacritics.txt",
+    "createdAt": "2026-10-08T09:16:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "MB Bank, OCR lost all diacritics, comma thousands"
+  },
+  {
+    "file": "receipt_tcb_ocr_noise.txt",
+    "createdAt": "2026-10-05T20:02:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "Techcombank, OCR noise breaks success phrase (c0ng, S0); bank + field + amount must still match"
+  },
+  {
+    "file": "receipt_bidv_nfd.txt",
+    "createdAt": "2026-09-22T18:46:00+07:00",
+    "qrAreaRatio": 0.08,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "BIDV, text stored in Unicode NFD (decomposed combining marks), small QR"
+  },
+  {
+    "file": "receipt_vietinbank_dong.txt",
+    "createdAt": "2026-10-01T07:59:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "VietinBank, 'giao dich da hoan tat', amount written with 'đồng'"
+  },
+  {
+    "file": "receipt_acb.txt",
+    "createdAt": "2026-10-11T21:11:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "ACB ONE transfer"
+  },
+  {
+    "file": "receipt_tpbank_english.txt",
+    "createdAt": "2026-10-09T16:21:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "TPBank in English UI"
+  },
+  {
+    "file": "receipt_vpbank_dong_sign.txt",
+    "createdAt": "2026-10-13T12:04:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "VPBank, amount prefixed with ₫ sign"
+  },
+  {
+    "file": "receipt_momo.txt",
+    "createdAt": "2026-10-03T10:43:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "MoMo wallet, amount '150.000đ' glued"
+  },
+  {
+    "file": "receipt_zalopay.txt",
+    "createdAt": "2026-10-14T08:13:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "ZaloPay bill payment, '89.000 ₫'"
+  },
+  {
+    "file": "receipt_flight_payment.txt",
+    "createdAt": "2026-08-20T11:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "Tricky: paid flight booking with past flight date; receipt must win over ticket"
+  },
+  {
+    "file": "receipt_mentions_bus_ticket.txt",
+    "createdAt": "2026-09-19T21:45:00+07:00",
+    "qrAreaRatio": 0.2,
+    "expectedCategory": "transferReceipt",
+    "expectedSuggestion": "keep",
+    "note": "Tricky: receipt whose memo mentions a past bus ticket, plus a big QR; receipt wins"
+  },
+  {
+    "file": "ticket_vietjet_boarding_past.txt",
+    "createdAt": "2026-09-10T20:00:00+07:00",
+    "qrAreaRatio": 0.1,
+    "expectedCategory": "expiredTicket",
+    "expectedSuggestion": "delete",
+    "note": "Vietjet boarding pass, flight 12/09/2026"
+  },
+  {
+    "file": "ticket_vna_boarding_future.txt",
+    "createdAt": "2026-10-14T19:00:00+07:00",
+    "qrAreaRatio": 0.1,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "Vietnam Airlines boarding pass for 20/10/2026 (future)"
+  },
+  {
+    "file": "ticket_bamboo_vn_date.txt",
+    "createdAt": "2026-08-01T10:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "expiredTicket",
+    "expectedSuggestion": "delete",
+    "note": "Bamboo Airways, Vietnamese date '05 thg 8, 2026'"
+  },
+  {
+    "file": "ticket_futa_bus_past.txt",
+    "createdAt": "2026-09-25T09:00:00+07:00",
+    "qrAreaRatio": 0.12,
+    "expectedCategory": "expiredTicket",
+    "expectedSuggestion": "delete",
+    "note": "FUTA bus e-ticket, departure 28/09/2026"
+  },
+  {
+    "file": "ticket_vexere_no_year.txt",
+    "createdAt": "2026-09-28T15:00:00+07:00",
+    "qrAreaRatio": 0.25,
+    "expectedCategory": "expiredTicket",
+    "expectedSuggestion": "delete",
+    "note": "Vexere, date without year '02/10' inferred from capture date"
+  },
+  {
+    "file": "ticket_train_today.txt",
+    "createdAt": "2026-10-10T09:00:00+07:00",
+    "qrAreaRatio": 0.2,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "Train ticket for today; QR big but only 5 days old -> nothing"
+  },
+  {
+    "file": "ticket_train_yesterday_grace.txt",
+    "createdAt": "2026-10-01T09:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "Train ticket dated yesterday: still inside 1-day grace"
+  },
+  {
+    "file": "ticket_cgv_movie_past.txt",
+    "createdAt": "2026-10-02T12:00:00+07:00",
+    "qrAreaRatio": 0.14,
+    "expectedCategory": "expiredTicket",
+    "expectedSuggestion": "delete",
+    "note": "CGV movie ticket 03/10/2026; QR just below threshold"
+  },
+  {
+    "file": "order_shopee_delivered_old.txt",
+    "createdAt": "2026-08-20T18:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "expiredOrder",
+    "expectedSuggestion": "delete",
+    "note": "Shopee delivered 20/08/2026, COD"
+  },
+  {
+    "file": "order_shopee_in_transit_recent.txt",
+    "createdAt": "2026-10-10T08:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "Shopee in transit, expected 16/10-18/10"
+  },
+  {
+    "file": "order_lazada_old_no_date.txt",
+    "createdAt": "2026-07-01T20:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "expiredOrder",
+    "expectedSuggestion": "delete",
+    "note": "Lazada order, no date in text, captured 106 days ago"
+  },
+  {
+    "file": "order_tiktokshop_textdate.txt",
+    "createdAt": "2026-10-01T09:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "expiredOrder",
+    "expectedSuggestion": "delete",
+    "note": "TikTok Shop: recent capture but delivered 01/09/2026 (> 30 days)"
+  },
+  {
+    "file": "order_ghn_tracking_old.txt",
+    "createdAt": "2026-08-12T15:30:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "expiredOrder",
+    "expectedSuggestion": "delete",
+    "note": "GHN tracking timeline"
+  },
+  {
+    "file": "order_ghtk_recent.txt",
+    "createdAt": "2026-10-13T10:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "GHTK in delivery, recent"
+  },
+  {
+    "file": "order_jt_express_old.txt",
+    "createdAt": "2026-06-15T17:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "expiredOrder",
+    "expectedSuggestion": "delete",
+    "note": "J&T Express, no date, old capture"
+  },
+  {
+    "file": "order_spx_old_style.txt",
+    "createdAt": "2026-09-05T11:30:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "expiredOrder",
+    "expectedSuggestion": "delete",
+    "note": "SPX old-style tracking, delivered 05/09/2026"
+  },
+  {
+    "file": "order_shopee_shopeepay_old.txt",
+    "createdAt": "2026-08-01T21:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "expiredOrder",
+    "expectedSuggestion": "delete",
+    "note": "Shopee order paid by ShopeePay; shipping 'Người nhận' + price look like a receipt",
+    "knownIssue": "BUG-1"
+  },
+  {
+    "file": "qr_wifi_old.txt",
+    "createdAt": "2026-09-01T19:00:00+07:00",
+    "qrAreaRatio": 0.35,
+    "expectedCategory": "qrCode",
+    "expectedSuggestion": "delete",
+    "note": "Wi-Fi QR from a cafe, 44 days old"
+  },
+  {
+    "file": "qr_vietqr_recent.txt",
+    "createdAt": "2026-10-12T09:00:00+07:00",
+    "qrAreaRatio": 0.4,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "VietQR payment QR, only 3 days old"
+  },
+  {
+    "file": "qr_vietqr_receive_old.txt",
+    "createdAt": "2026-09-20T09:00:00+07:00",
+    "qrAreaRatio": 0.3,
+    "expectedCategory": "qrCode",
+    "expectedSuggestion": "delete",
+    "note": "VietQR receive code with bank + account number but no amount -> not a receipt"
+  },
+  {
+    "file": "chat_zalo_ve_nha.txt",
+    "createdAt": "2026-07-01T21:06:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "Chat with 'về nhà' (folds to 've') must not be a ticket"
+  },
+  {
+    "file": "chat_messenger_chuyen_tien_chua.txt",
+    "createdAt": "2026-08-15T20:15:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "Chat 'chuyển tiền chưa?' with bank name + field but no amount pattern"
+  },
+  {
+    "file": "chat_birthday_cake.txt",
+    "createdAt": "2026-09-30T15:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "Group chat: 'cake' (word) + 'số tiền' + amount looks like a Cake-bank receipt",
+    "knownIssue": "BUG-2"
+  },
+  {
+    "file": "news_shopee_article.txt",
+    "createdAt": "2026-08-05T07:30:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "News article about Shopee fees mentioning 'đơn hàng'; old capture",
+    "knownIssue": "BUG-3"
+  },
+  {
+    "file": "maps_route_driving.txt",
+    "createdAt": "2026-06-20T08:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "Google Maps driving route"
+  },
+  {
+    "file": "maps_transit_khoi_hanh.txt",
+    "createdAt": "2026-08-01T07:50:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "Maps transit directions 'Khởi hành lúc' (depart at) - not a ticket",
+    "knownIssue": "BUG-4"
+  },
+  {
+    "file": "settings_ios.txt",
+    "createdAt": "2026-05-01T10:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "iOS Settings ('Chế độ máy bay' must not be a flight ticket)"
+  },
+  {
+    "file": "meme_little_text.txt",
+    "createdAt": "2026-04-10T22:00:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "Meme with very little text and emoji ('lương về')"
+  },
+  {
+    "file": "otp_sms_zalo.txt",
+    "createdAt": "2026-10-15T08:57:00+07:00",
+    "qrAreaRatio": 0,
+    "expectedCategory": "other",
+    "expectedSuggestion": "none",
+    "note": "OTP SMS (out of scope) -> nothing"
+  }
+]

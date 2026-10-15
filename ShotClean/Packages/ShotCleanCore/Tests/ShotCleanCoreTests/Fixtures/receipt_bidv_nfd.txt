@@ -1,0 +1,9 @@
+BIDV SmartBanking
+Giao dịch thành công
+Số tiền: 3,000,000 VND
+Bằng chữ: Ba triệu đồng
+Tài khoản thụ hưởng: 2151 0000 9876 54
+Tên người thụ hưởng: PHAM QUOC DUNG
+Ngân hàng thụ hưởng: VietinBank
+Thời gian: 22/09/2026 18:45:10
+Mã giao dịch: 9001234567
