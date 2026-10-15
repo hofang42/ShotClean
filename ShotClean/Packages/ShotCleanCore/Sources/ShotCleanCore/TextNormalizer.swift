@@ -8,19 +8,30 @@ public enum TextNormalizer {
   /// `đ` is mapped explicitly because it is a distinct letter, not `d` plus a combining mark,
   /// so diacritic folding leaves it untouched. A fixed POSIX locale keeps behavior identical
   /// on Apple platforms and Linux.
+  ///
+  /// The `đ` mapping and whitespace collapsing share one pass over the scalars (BUG-6).
   public static func fold(_ s: String) -> String {
     let folded =
       s
-      .replacingOccurrences(of: "đ", with: "d")
-      .replacingOccurrences(of: "Đ", with: "d")
       .folding(
         options: [.diacriticInsensitive, .caseInsensitive],
         locale: Locale(identifier: "en_US_POSIX")
       )
       .lowercased()
-    return
-      folded
-      .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
-      .joined(separator: " ")
+    var result = String.UnicodeScalarView()
+    var pendingSpace = false
+    for scalar in folded.unicodeScalars {
+      if scalar.properties.isWhitespace {
+        pendingSpace = !result.isEmpty
+        continue
+      }
+      if pendingSpace {
+        result.append(" ")
+        pendingSpace = false
+      }
+      // U+0110 Đ, U+0111 đ
+      result.append(scalar.value == 0x110 || scalar.value == 0x111 ? "d" : scalar)
+    }
+    return String(result)
   }
 }

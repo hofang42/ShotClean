@@ -52,9 +52,7 @@ struct ClassifierInputEdgeTests {
     }
     print("[perf] classify 50 KB: \(elapsed) (fold \(foldTime), dates \(dateTime))")
     #expect(verdict.category == .expiredOrder)
-    withKnownIssue("BUG-6: 50 KB classify takes ~80–95 ms on Linux (budget 50 ms)") {
-      #expect(elapsed < .milliseconds(50))
-    }
+    #expect(elapsed < .milliseconds(50))
   }
 
   @Test("emoji glued to keywords still matches a receipt")
@@ -80,7 +78,9 @@ struct ClassifierInputEdgeTests {
     #expect(verdict == .other)
   }
 
-  @Test("fold never crashes and keeps emoji content", arguments: ["👩‍👩‍👧‍👦", "🇻🇳", "e\u{301}\u{302}\u{323}", "Đ\u{0110}đ"])
+  @Test(
+    "fold never crashes and keeps emoji content",
+    arguments: ["👩‍👩‍👧‍👦", "🇻🇳", "e\u{301}\u{302}\u{323}", "Đ\u{0110}đ"])
   func foldOddUnicode(text: String) {
     let folded = TextNormalizer.fold(text)
     #expect(!folded.isEmpty)
@@ -108,9 +108,7 @@ struct BoundaryEdgeTests {
   func yearBoundaryForward() {
     let dates = DateExtractor.dates(
       in: "Ngày đi 02/01", reference: TestSupport.date(2025, 12, 30), calendar: calendar)
-    withKnownIssue("BUG-5: year-less date never rolls forward into next year") {
-      #expect(dates == [TestSupport.date(2026, 1, 2)])
-    }
+    #expect(dates == [TestSupport.date(2026, 1, 2)])
   }
 
   @Test("upcoming New Year ticket '02/01' captured on 30/12 is not suggested for deletion")
@@ -118,9 +116,37 @@ struct BoundaryEdgeTests {
     let verdict = ticket(
       "Vé xe Phương Trang\nGiờ khởi hành 22:00 02/01", createdAt: TestSupport.date(2025, 12, 30, 9),
       now: TestSupport.date(2025, 12, 31, 9))
-    withKnownIssue("BUG-5: future ticket read as 02/01/2025 and marked expired") {
-      #expect(verdict == .other)
-    }
+    #expect(verdict == .other)
+  }
+
+  @Test("unknown capture date (.distantPast) never triggers age-based rules (REV-4)")
+  func unknownCaptureDate() {
+    let classifier = ScreenshotClassifier(thresholds: TestSupport.thresholds)
+    let unknown = Date.distantPast
+    let now = TestSupport.now
+    // QR, ticket without date, order without date: all age-only → nothing.
+    #expect(
+      classifier.classify(TestSupport.features("q", createdAt: unknown, qr: 0.5), now: now)
+        == .other)
+    #expect(
+      classifier.classify(
+        TestSupport.features("t", createdAt: unknown, text: "Boarding pass\nFlight VJ123\nGate 5"),
+        now: now) == .other)
+    #expect(
+      classifier.classify(
+        TestSupport.features("o", createdAt: unknown, text: "Lazada\nĐang vận chuyển"), now: now)
+        == .other)
+    // Year-less dates are read relative to `now`, not year 0001: 20/10 is upcoming.
+    #expect(
+      classifier.classify(
+        TestSupport.features("v", createdAt: unknown, text: "Vé xe\nKhởi hành 22:00 20/10"),
+        now: now)
+        == .other)
+    // Explicit past dates in the text still work.
+    #expect(
+      classifier.classify(
+        TestSupport.features("p", createdAt: unknown, text: "Vé xe\nNgày đi 01/09/2026"), now: now
+      ).category == .expiredTicket)
   }
 
   @Test("ticket for 31/12 (no year) is expired on 02/01, captured 01/01")
@@ -172,7 +198,8 @@ struct BoundaryEdgeTests {
     var ny = Calendar(identifier: .gregorian)
     ny.timeZone = try #require(TimeZone(identifier: "America/New_York"))
     let thresholds = Thresholds(calendar: ny)
-    let created = try #require(ny.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 10)))
+    let created = try #require(
+      ny.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 10)))
     let now = try #require(ny.date(from: DateComponents(year: 2026, month: 11, day: 5, hour: 10)))
     // 7 calendar days but 169 hours because clocks fall back on 01/11.
     #expect(now.timeIntervalSince(created) == 7 * 86_400 + 3600)
@@ -188,15 +215,19 @@ struct BoundaryEdgeTests {
     let created = TestSupport.daysAgo(10)
     let at = TestSupport.thresholds.qrMinArea
     #expect(
-      classifier.classify(TestSupport.features("a", createdAt: created, qr: at), now: TestSupport.now)
-        .category == .qrCode)
+      classifier.classify(
+        TestSupport.features("a", createdAt: created, qr: at), now: TestSupport.now
+      )
+      .category == .qrCode)
     #expect(
       classifier.classify(
         TestSupport.features("b", createdAt: created, qr: at.nextDown), now: TestSupport.now)
         == .other)
     #expect(
-      classifier.classify(TestSupport.features("c", createdAt: created, qr: 1.0), now: TestSupport.now)
-        .category == .qrCode)
+      classifier.classify(
+        TestSupport.features("c", createdAt: created, qr: 1.0), now: TestSupport.now
+      )
+      .category == .qrCode)
   }
 
   @Test("QR exactly 7 days old qualifies; one second younger does not")
@@ -204,7 +235,8 @@ struct BoundaryEdgeTests {
     let classifier = ScreenshotClassifier(thresholds: TestSupport.thresholds)
     let sevenDays = TestSupport.daysAgo(7)
     #expect(
-      classifier.classify(TestSupport.features("a", createdAt: sevenDays, qr: 0.5), now: TestSupport.now)
+      classifier.classify(
+        TestSupport.features("a", createdAt: sevenDays, qr: 0.5), now: TestSupport.now)
         == Verdict(category: .qrCode, suggestion: .delete, reason: "Mã QR, chụp 7 ngày trước"))
     #expect(
       classifier.classify(
@@ -222,7 +254,8 @@ struct BoundaryEdgeTests {
         == .other)
     #expect(
       classifier.classify(
-        TestSupport.features("b", createdAt: thirty.addingTimeInterval(-1), text: "Shopee đơn hàng"),
+        TestSupport.features(
+          "b", createdAt: thirty.addingTimeInterval(-1), text: "Shopee đơn hàng"),
         now: TestSupport.now
       ).category == .expiredOrder)
   }
@@ -277,7 +310,6 @@ struct ScaleEdgeTests {
     #expect(near.allSatisfy { $0.memberIDs.count == 4 || $0.memberIDs.count == 3 })
   }
 
-
   /// Mixed library: receipts, tickets, orders, QR, exact and near duplicates.
   static func mixedLibrary() -> [ScreenshotFeatures] {
     var items: [ScreenshotFeatures] = []
@@ -326,7 +358,7 @@ struct ScaleEdgeTests {
       #expect(result.verdicts == reference.verdicts)
       #expect(result.clusters == reference.clusters)
       #expect(result.preselectedForDeletion() == reference.preselectedForDeletion())
-      for category in Category.allCases {
+      for category in ShotCleanCore.Category.allCases {
         #expect(Set(result.ids(in: category)) == Set(reference.ids(in: category)))
       }
     }

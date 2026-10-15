@@ -229,8 +229,7 @@
     "qrAreaRatio": 0,
     "expectedCategory": "expiredOrder",
     "expectedSuggestion": "delete",
-    "note": "Shopee order paid by ShopeePay; shipping 'Người nhận' + price look like a receipt",
-    "knownIssue": "BUG-1"
+    "note": "Shopee order paid by ShopeePay; shipping 'Người nhận' + price look like a receipt"
   },
   {
     "file": "qr_wifi_old.txt",
@@ -278,8 +277,7 @@
     "qrAreaRatio": 0,
     "expectedCategory": "other",
     "expectedSuggestion": "none",
-    "note": "Group chat: 'cake' (word) + 'số tiền' + amount looks like a Cake-bank receipt",
-    "knownIssue": "BUG-2"
+    "note": "Group chat: 'cake' (word) + 'số tiền' + amount looks like a Cake-bank receipt"
   },
   {
     "file": "news_shopee_article.txt",
@@ -287,8 +285,7 @@
     "qrAreaRatio": 0,
     "expectedCategory": "other",
     "expectedSuggestion": "none",
-    "note": "News article about Shopee fees mentioning 'đơn hàng'; old capture",
-    "knownIssue": "BUG-3"
+    "note": "News article about Shopee fees mentioning 'đơn hàng'; old capture"
   },
   {
     "file": "maps_route_driving.txt",
@@ -304,8 +301,7 @@
     "qrAreaRatio": 0,
     "expectedCategory": "other",
     "expectedSuggestion": "none",
-    "note": "Maps transit directions 'Khởi hành lúc' (depart at) - not a ticket",
-    "knownIssue": "BUG-4"
+    "note": "Maps transit directions 'Khởi hành lúc' (depart at) - not a ticket"
   },
   {
     "file": "settings_ios.txt",

@@ -23,8 +23,9 @@ enum Fixtures {
   static let now: Date = parseDate("2026-10-15T09:00:00+07:00")
 
   static let entries: [FixtureEntry] = {
-    guard let url = Bundle.module.url(
-      forResource: "manifest", withExtension: "json", subdirectory: "Fixtures")
+    guard
+      let url = Bundle.module.url(
+        forResource: "manifest", withExtension: "json", subdirectory: "Fixtures")
     else { preconditionFailure("Fixtures/manifest.json missing from test bundle") }
     do {
       return try JSONDecoder().decode([FixtureEntry].self, from: Data(contentsOf: url))
@@ -73,14 +74,15 @@ struct FixtureTests {
     #expect(entries.count >= 30)
     #expect(Set(entries.map(\.file)).count == entries.count, "duplicate file names")
     for entry in entries {
-      #expect(Category(rawValue: entry.expectedCategory) != nil, "\(entry.file)")
+      #expect(ShotCleanCore.Category(rawValue: entry.expectedCategory) != nil, "\(entry.file)")
       #expect(Verdict.Suggestion(rawValue: entry.expectedSuggestion) != nil, "\(entry.file)")
       #expect((0...1).contains(entry.qrAreaRatio), "\(entry.file)")
       #expect(!(try Fixtures.text(entry.file)).isEmpty, "\(entry.file)")
     }
   }
 
-  @Test("classifier verdict matches the labelled category and suggestion", arguments: Fixtures.entries)
+  @Test(
+    "classifier verdict matches the labelled category and suggestion", arguments: Fixtures.entries)
   func fixtureVerdict(entry: FixtureEntry) throws {
     let verdict = try Fixtures.classify(entry)
     let check = {
@@ -108,7 +110,8 @@ struct FixtureTests {
   }
 
   /// Precision of `.delete`: correct deletes / all delete suggestions (`nil` when none).
-  private func deletePrecision(_ outcomes: [Outcome]) -> (precision: Double, hits: Int, total: Int) {
+  private func deletePrecision(_ outcomes: [Outcome]) -> (precision: Double, hits: Int, total: Int)
+  {
     let suggested = outcomes.filter { $0.verdict.suggestion == .delete }
     let hits = suggested.filter { $0.entry.expectedSuggestion == "delete" }.count
     return (suggested.isEmpty ? 1 : Double(hits) / Double(suggested.count), hits, suggested.count)
@@ -117,7 +120,9 @@ struct FixtureTests {
   @Test("SPEC success criteria: zero receipts suggested for deletion")
   func noReceiptDeleted() throws {
     let all = try outcomes(Fixtures.entries)
-    let receipts = all.filter { $0.entry.expectedCategory == Category.transferReceipt.rawValue }
+    let receipts = all.filter {
+      $0.entry.expectedCategory == ShotCleanCore.Category.transferReceipt.rawValue
+    }
     #expect(receipts.count >= 10)
     for receipt in receipts {
       #expect(receipt.verdict.suggestion != .delete, "\(receipt.entry.file) suggested for delete")
@@ -151,15 +156,7 @@ struct FixtureTests {
     print(
       "[fixtures] delete precision (all): \(hits)/\(total) = \(precision); false positives: \(falsePositives)"
     )
-    let knownFalsePositives = Fixtures.entries.contains {
-      $0.knownIssue != nil && $0.expectedSuggestion != "delete"
-    }
-    if knownFalsePositives {
-      withKnownIssue("BUG-3/BUG-4 false-positive deletes pull precision below 0.95") {
-        #expect(precision >= 0.95)
-      }
-    } else {
-      #expect(precision >= 0.95)
-    }
+    #expect(total > 0)
+    #expect(precision >= 0.95, "false positives: \(falsePositives)")
   }
 }

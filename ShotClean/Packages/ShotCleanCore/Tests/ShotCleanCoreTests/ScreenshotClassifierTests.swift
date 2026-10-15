@@ -188,6 +188,39 @@ struct ScreenshotClassifierTests {
     #expect(verdict.category == .expiredOrder)
   }
 
+  // MARK: rule tightening (BUG-1..4)
+
+  @Test("bank + two generic receipt fields + amount, no success phrase, is still a receipt")
+  func receiptWithGenericFieldsOnly() {
+    let text = "Vietcombank\nSố tiền 500.000 VND\nNội dung: tien nha thang 10"
+    #expect(classify(text, createdAt: TestSupport.daysAgo(400)).category == .transferReceipt)
+  }
+
+  @Test("ambiguous bank word with only generic fields is not a receipt")
+  func ambiguousBankWord() {
+    let text = "Mua cake nhé\nSố tiền 300.000đ\nNội dung ghi cake"
+    #expect(classify(text).category == .other)
+  }
+
+  @Test("ambiguous bank name with a receipt-only field is a receipt")
+  func ambiguousBankWithStrongField() {
+    let text = "MB\nSố tiền 500.000 VND\nMã giao dịch FT123"
+    #expect(classify(text).category == .transferReceipt)
+  }
+
+  @Test("a shop name alone is not an order screen")
+  func brandAloneIsNotOrder() {
+    let text = "Shopee Live hôm nay giảm giá\nĐơn hàng trên 99k được freeship"
+    #expect(classify(text, createdAt: TestSupport.daysAgo(60)).category == .other)
+  }
+
+  @Test("two generic travel words make a ticket, one does not")
+  func genericTravelWords() {
+    #expect(
+      classify("Gate 5\nSeat 12A", createdAt: TestSupport.daysAgo(40)).category == .expiredTicket)
+    #expect(classify("Khởi hành lúc 08:15", createdAt: TestSupport.daysAgo(40)).category == .other)
+  }
+
   @Test("plain text with nothing to match is other / none")
   func other() {
     #expect(classify("Cài đặt\nWi-Fi\nBluetooth") == .other)

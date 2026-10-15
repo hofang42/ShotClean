@@ -42,6 +42,21 @@ struct DateExtractorTests {
     #expect(extract("Đặt hàng 20/12") == [TestSupport.date(2025, 12, 20)])
   }
 
+  @Test(
+    "Vietnamese month forms with odd spacing",
+    arguments: ["12thg9 2026", "ngày 12 tháng 9 năm 2026", "12 THG 9 , 2026", "12 thang 09"])
+  func vietnameseSpacing(text: String) {
+    #expect(extract(text) == [TestSupport.date(2026, 9, 12)])
+  }
+
+  @Test("dates glued to letters or emoji are found; glued to numbers are not")
+  func scannerBoundaries() {
+    #expect(extract("Ngày12/09/2026😂") == [TestSupport.date(2026, 9, 12)])
+    #expect(extract("1-12/09/2026").isEmpty)
+    #expect(extract("12/09/20261").isEmpty)
+    #expect(extract("12/09/2026.5").isEmpty)
+  }
+
   @Test("'12 thg 9' without a year is inferred like dd/MM")
   func vietnameseMonthWithoutYear() {
     #expect(extract("12 thg 9") == [TestSupport.date(2026, 9, 12)])

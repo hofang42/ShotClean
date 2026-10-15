@@ -312,3 +312,10 @@ iOS 27 SDK (warnings, not errors).
 - Tests reviewed: Core suite structure and fixtures (passing on Linux per the brief; BUG-1..6 known). There are no app-layer tests. REV-1, REV-2 and REV-6 are good candidates for a small testable `SelectionStore`/`SwipeSession` in the app or the Core.
 - Build verified: **no** iOS build (no Darwin SDK). Language-level constructs were probe-compiled on Swift 6.4.1 in Swift 6 mode. Apple API signatures were checked by reading.
 - Security checked: yes. No networking, file protection, backup exclusion, logging privacy and no private API, with the notes in REV-14 and REV-22.
+
+## Resolution — Core items (R7a core-fixer, 2026-10-15)
+- **REV-4 — Resolution (Core side):** `ScreenshotClassifier` now treats `createdAt` before 2000-01-01 (e.g. `.distantPast`) as unknown and skips every age-based rule (QR age, ticket no-date fallback, order capture-date fallback); year-less dates use `now` as reference. Covered by `BoundaryEdgeTests.unknownCaptureDate`. The app-side fix in `ScreenshotAnalyzer.swift:111` (`creationDate ?? modificationDate ?? Date()`) is still owed by the app fixer.
+- **REV-21 — Resolution:** Core tests now spell the type `ShotCleanCore.Category` (`FixtureTests.swift`, `EdgeCaseTests.swift`), so there is no `ObjectiveC.Category` ambiguity on Darwin. The public type was not renamed to avoid breaking the app.
+- **REV-19 — Resolution (Core side): no Core change.** The misleading "Nét nhất" label is app-side; the Core keeper rule (largest area, ties → oldest) is documented in `Models.swift`. Capping near-duplicate cluster span would change clustering semantics and is left as a product decision.
+- **REV-3 — Resolution (Core side): no Core change.** The root cause is which PhotoKit resource the app hashes; the Core only compares the `sha256` it is given.
+- Also fixed in Core: BUG-1..BUG-6 (see `tasks/bugs.md`, Status section).
