@@ -1,0 +1,6 @@
+.build/
+xtool/
+*.ipa
+.swiftpm/
+.DS_Store
+squashfs-root/

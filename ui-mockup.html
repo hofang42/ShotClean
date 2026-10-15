@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShotClean Mockup</title>
+<style>
+:root{
+  --bg:#F2F2F7;--card:#FFFFFF;--text:#111114;--sub:#6B6B73;--line:#E3E3E8;
+  --accent:#2F6BFF;--red:#FF3B30;--keep:#1E9E62;
+  --dup:#2F6BFF;--near:#14A3A3;--qr:#8E44EC;--ticket:#F27A1A;--order:#D9A100;--receipt:#1E9E62;
+  --page:#E9EAF0;--glass:rgba(255,255,255,.72);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#000;--card:#1C1C1E;--text:#F5F5F7;--sub:#9A9AA2;--line:#2C2C2E;
+  --accent:#5B8CFF;--keep:#34C77B;--dup:#5B8CFF;--near:#2CC6C6;--qr:#B07CFF;--ticket:#FF9A45;--order:#F2C230;--receipt:#34C77B;
+  --page:#0E0E11;--glass:rgba(40,40,44,.72);}}
+:root[data-theme="dark"]{
+  --bg:#000;--card:#1C1C1E;--text:#F5F5F7;--sub:#9A9AA2;--line:#2C2C2E;
+  --accent:#5B8CFF;--keep:#34C77B;--dup:#5B8CFF;--near:#2CC6C6;--qr:#B07CFF;--ticket:#FF9A45;--order:#F2C230;--receipt:#34C77B;
+  --page:#0E0E11;--glass:rgba(40,40,44,.72);}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--page);color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;padding:24px 16px 48px}
+header.top{max-width:1200px;margin:0 auto 24px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:end}
+header.top h1{font-size:24px}
+header.top p{color:var(--sub);max-width:640px}
+.toggle{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;padding:8px 12px;cursor:pointer;font:inherit}
+.grid{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:28px}
+.screen{display:flex;flex-direction:column;align-items:center;gap:10px}
+.label{font-size:13px;color:var(--sub);text-align:center}
+.label b{color:var(--text)}
+.phone{width:300px;max-width:100%;height:620px;border-radius:44px;background:var(--bg);border:10px solid #1a1a1d;position:relative;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,.18)}
+.status{height:34px;display:flex;justify-content:space-between;align-items:center;padding:0 22px;font-size:12px;font-weight:600}
+.notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:90px;height:24px;background:#000;border-radius:14px}
+.body{padding:6px 14px 90px;height:calc(100% - 34px);overflow:hidden}
+.lt{font-size:26px;font-weight:700;margin:6px 0 12px}
+.nav{display:flex;align-items:center;justify-content:space-between;margin:4px 0 10px;font-size:15px}
+.nav .back{color:var(--accent)}
+.nav .t{font-weight:600}
+.card{background:var(--card);border-radius:16px;padding:12px}
+.hero .big{font-size:30px;font-weight:700;font-family:ui-rounded,"SF Pro Rounded",system-ui;font-variant-numeric:tabular-nums}
+.hero .sub{color:var(--sub);font-size:12px;margin-top:2px}
+.bar{display:flex;height:10px;border-radius:6px;overflow:hidden;margin-top:10px;gap:2px}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:10px;color:var(--sub)}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:3px;vertical-align:middle}
+.list{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.row{display:flex;align-items:center;gap:10px;background:var(--card);border-radius:14px;padding:10px}
+.ic{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:#fff;font-size:15px;flex:none}
+.row .m{flex:1;min-width:0}
+.row .n{font-weight:600;font-size:14px}
+.row .r{font-size:11px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .c{text-align:right;font-size:12px;color:var(--sub)}
+.row .c b{display:block;color:var(--text);font-size:14px}
+.chev{color:var(--sub);font-size:16px}
+.pill{font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px;background:color-mix(in srgb,var(--ticket) 18%,transparent);color:var(--ticket)}
+.protect{border:1.5px dashed color-mix(in srgb,var(--keep) 60%,transparent)}
+.float{position:absolute;left:10px;right:10px;bottom:14px;background:var(--glass);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-radius:22px;padding:10px;display:flex;gap:8px;border:1px solid var(--line)}
+.btn{flex:1;border:none;border-radius:12px;padding:11px 8px;font:600 14px/1 inherit;font-family:inherit;text-align:center}
+.btn.p{background:var(--accent);color:#fff}
+.btn.s{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent)}
+.btn.d{background:var(--red);color:#fff}
+.btn.k{background:var(--keep);color:#fff}
+.thumbs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.th{aspect-ratio:9/16;border-radius:10px;position:relative;overflow:hidden;background:linear-gradient(160deg,#c9d3e8,#9fb0d4)}
+.th .ln{position:absolute;left:10%;right:10%;height:5px;border-radius:3px;background:rgba(255,255,255,.75)}
+.th .badge{position:absolute;left:4px;right:4px;bottom:4px;font-size:8.5px;font-weight:600;color:#fff;background:rgba(0,0,0,.55);border-radius:5px;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th .sel{position:absolute;top:5px;right:5px;width:16px;height:16px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.15)}
+.th .sel.on{background:var(--accent);border-color:#fff}
+.th .sel.on::after{content:"✓";color:#fff;font-size:10px;display:grid;place-items:center;height:100%;line-height:12px}
+.qrbox{position:absolute;inset:28% 20%;background:repeating-conic-gradient(#222 0 25%,#fff 0 50%) 0 0/10px 10px;border-radius:4px}
+.toolbar{display:flex;justify-content:space-between;font-size:12px;color:var(--accent);margin-bottom:8px}
+.cluster{background:var(--card);border-radius:14px;padding:10px;margin-bottom:10px}
+.cluster h4{font-size:12px;color:var(--sub);font-weight:500;margin-bottom:8px;display:flex;justify-content:space-between}
+.crow{display:flex;gap:6px}
+.crow .th{width:31%}
+.keeptag{position:absolute;top:5px;left:5px;background:var(--keep);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:5px}
+.keepbd{outline:3px solid var(--keep);outline-offset:-3px}
+.center{display:flex;flex-direction:column;align-items:center;text-align:center}
+.ring{width:150px;height:150px;border-radius:50%;background:conic-gradient(var(--accent) 0 33%,var(--line) 0);display:grid;place-items:center;margin:28px 0 14px}
+.ring div{width:122px;height:122px;border-radius:50%;background:var(--bg);display:grid;place-items:center;font-family:ui-rounded,system-ui;font-weight:700;font-size:22px}
+.ring small{display:block;font-size:11px;color:var(--sub);font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:12px 0}
+.chip{font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px;background:var(--card)}
+.priv{display:inline-flex;gap:6px;align-items:center;font-size:11px;color:var(--keep);background:color-mix(in srgb,var(--keep) 14%,transparent);padding:5px 10px;border-radius:999px}
+.feat{display:flex;gap:10px;align-items:center;text-align:left;width:100%;background:var(--card);border-radius:14px;padding:10px;margin-top:8px;font-size:13px}
+.hero-ill{position:relative;width:170px;height:150px;margin:24px 0 8px}
+.hero-ill .th{position:absolute;width:62px}
+.swipe{position:relative;height:390px;margin-top:4px}
+.swipe .th{position:absolute;inset:0 14px;aspect-ratio:auto;border-radius:20px}
+.swipe .back{transform:rotate(-4deg) translateY(8px);opacity:.6}
+.swipe .front{transform:rotate(6deg) translateX(-22px);box-shadow:0 10px 24px rgba(0,0,0,.2)}
+.ov{position:absolute;top:18px;right:18px;border:3px solid var(--red);color:var(--red);font-weight:800;font-size:18px;padding:2px 10px;border-radius:8px;transform:rotate(-10deg);background:rgba(255,255,255,.7)}
+.meta{text-align:center;font-size:12px;color:var(--sub);margin-top:8px}
+.queue{font-size:12px;text-align:center;color:var(--sub);margin-bottom:6px}
+.queue b{color:var(--text)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--card);border-radius:22px 22px 0 0;padding:16px 16px 22px;box-shadow:0 -8px 24px rgba(0,0,0,.15)}
+.dim{position:absolute;inset:0;background:rgba(0,0,0,.35)}
+.grab{width:36px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 12px}
+.done{font-size:46px;color:var(--keep)}
+.note{font-size:12px;color:var(--sub);background:var(--card);padding:10px;border-radius:12px;margin-top:14px;text-align:left}
+.foot{max-width:1200px;margin:32px auto 0;color:var(--sub);font-size:13px}
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>ShotClean: mockup giao diện</h1>
+    <p>Phác thảo màn hình cho POC/MVP theo <b>UI-SPEC.md</b>. Mockup tĩnh, đã ước lượng theo tỉ lệ iPhone, dùng để thống nhất bố cục và nội dung, không phải pixel-perfect.</p>
+  </div>
+  <button class="toggle" id="t">Đổi light/dark</button>
+</header>
+
+<main class="grid">
+
+<!-- S1 -->
+<section class="screen"><div class="phone"><div class="notch"></div><div class="status"><span>9:41</span><span>●●●</span></div>
+<div class="body center">
+  <div class="hero-ill">
+    <div class="th" style="left:10px;top:20px;transform:rotate(-10deg)"><div class="ln" style="top:20%"></div><div class="ln" style="top:30%;right:30%"></div></div>
+    <div class="th" style="left:54px;top:4px;background:linear-gradient(160deg,#d8c7f2,#ad8ee6)"><div class="qrbox"></div></div>
+    <div class="th" style="left:98px;top:20px;transform:rotate(10deg);background:linear-gradient(160deg,#c6ead7,#86cfa8)"><div class="ln" style="top:25%"></div></div>
+    <div class="ic" style="position:absolute;left:68px;top:108px;background:var(--keep);width:40px;height:40px;border-radius:12px">🛡</div>
+  </div>
+  <div class="lt" style="font-size:22px">Dọn ảnh chụp màn hình,<br>không xoá nhầm.</div>
+  <div class="feat"><div class="ic" style="background:var(--accent)">▣</div>Chỉ quét ảnh chụp màn hình</div>
+  <div class="feat"><div class="ic" style="background:var(--near)">⌁</div>Xử lý 100% trên máy, không tải ảnh lên</div>
+  <div class="feat"><div class="ic" style="background:var(--keep)">✓</div>Biên lai chuyển khoản luôn được giữ lại</div>
+  <p style="font-size:11px;color:var(--sub);margin-top:14px">Mua 1 lần · Không subscription</p>
+</div>
+<div class="float"><div class="btn p">Bắt đầu</div></div>
+</div><p class="label"><b>S1 · Onboarding</b>: 1 màn, không paywall</p></section>
+
+<!-- S3 -->
+<section class="screen"><div class="phone"><div class="notch"></div><div class="status"><span>9:41</span><span>●●●</span></div>
+<div class="body center">
+  <div class="lt" style="font-size:20px;margin-top:10px">Đang phân tích…</div>
+  <div class="ring"><div><span>1.240<small>/ 3.800 ảnh</small></span></div></div>
+  <div class="chips">
+    <span class="chip" style="color:var(--dup)">⧉ Trùng 32</span>
+    <span class="chip" style="color:var(--qr)">▦ QR 18</span>
+    <span class="chip" style="color:var(--ticket)">🎫 Vé 7</span>
+    <span class="chip" style="color:var(--order)">📦 Đơn hàng 41</span>
+    <span class="chip" style="color:var(--receipt)">🛡 Biên lai 26</span>
+  </div>
+  <span class="priv">🔒 Xử lý trên máy · Không tải ảnh lên</span>
+</div>
+<div class="float"><div class="btn s">Huỷ</div></div>
+</div><p class="label"><b>S3 · Đang quét</b>: số đếm động + chip nhóm hiện dần</p></section>
+
+<!-- S4 -->
+<section class="screen"><div class="phone"><div class="notch"></div><div class="status"><span>9:41</span><span>●●●</span></div>
+<div class="body">
+  <div class="lt">Tổng quan</div>
+  <div class="card hero">
+    <div style="font-size:12px;color:var(--sub)">Có thể giải phóng</div>
+    <div class="big">~1,2 GB</div>
+    <div class="sub">từ 412 / 3.800 ảnh chụp màn hình</div>
+    <div class="bar"><span style="flex:34;background:var(--dup)"></span><span style="flex:22;background:var(--order)"></span><span style="flex:16;background:var(--qr)"></span><span style="flex:10;background:var(--ticket)"></span><span style="flex:18;background:var(--near)"></span></div>
+    <div class="legend"><span><i style="background:var(--dup)"></i>Trùng</span><span><i style="background:var(--order)"></i>Đơn hàng</span><span><i style="background:var(--qr)"></i>QR</span><span><i style="background:var(--ticket)"></i>Vé</span><span><i style="background:var(--near)"></i>Gần trùng</span></div>
+  </div>
+  <div class="list">
+    <div class="row"><div class="ic" style="background:var(--dup)">⧉</div><div class="m"><div class="n">Trùng hoàn toàn</div><div class="r">Giữ ảnh cũ nhất mỗi cụm</div></div><div class="c"><b>96</b>410 MB</div><span class="chev">›</span></div>
+    <div class="row"><div class="ic" style="background:var(--order)">📦</div><div class="m"><div class="n">Đơn hàng hết hạn</div><div class="r">Đã giao hơn 30 ngày</div></div><div class="c"><b>141</b>265 MB</div><span class="chev">›</span></div>
+    <div class="row"><div class="ic" style="background:var(--qr)">▦</div><div class="m"><div class="n">QR không cần thiết</div><div class="r">Chủ yếu là mã QR, cũ hơn 7 ngày</div></div><div class="c"><b>58</b>190 MB</div><span class="chev">›</span></div>
+    <div class="row"><div class="ic" style="background:var(--ticket)">🎫</div><div class="m"><div class="n">Vé đã qua ngày</div><div class="r">Ngày đi đã qua</div></div><div class="c"><b>23</b>120 MB</div><span class="chev">›</span></div>
+    <div class="row"><div class="ic" style="background:var(--near)">◫</div><div class="m"><div class="n">Gần trùng <span class="pill">Cần bạn xem</span></div><div class="r">Chụp liên tiếp trong 10 phút</div></div><div class="c"><b>94</b>215 MB</div><span class="chev">›</span></div>
+    <div class="row protect"><div class="ic" style="background:var(--keep)">🛡</div><div class="m"><div class="n">Được bảo vệ</div><div class="r">Biên lai chuyển khoản · luôn giữ</div></div><div class="c"><b>128</b>&nbsp;</div><span class="chev">›</span></div>
+  </div>
+</div>
+<div class="float"><div class="btn p">Dọn nhanh 318 ảnh</div><div class="btn s" style="flex:.7">Vuốt duyệt</div></div>
+</div><p class="label"><b>S4 · Tổng quan</b>: hero + thanh dung lượng + card nhóm. "Dọn nhanh" không gồm gần trùng</p></section>
+
+<!-- S5 -->
+<section class="screen"><div class="phone"><div class="notch"></div><div class="status"><span>9:41</span><span>●●●</span></div>
+<div class="body">
+  <div class="nav"><span class="back">‹ Tổng quan</span><span class="t">Vé đã qua ngày</span><span style="width:60px"></span></div>
+  <div class="toolbar"><span>Bỏ chọn tất cả</span><span>Sắp xếp: Cũ nhất ▾</span></div>
+  <div class="thumbs">
+    <div class="th" style="background:linear-gradient(160deg,#ffd9b8,#f5a66b)"><div class="ln" style="top:18%"></div><div class="ln" style="top:28%;right:40%"></div><span class="sel on"></span><span class="badge">Vé 12/09 đã qua</span></div>
+    <div class="th" style="background:linear-gradient(160deg,#ffe3c4,#f2b27a)"><div class="ln" style="top:22%"></div><span class="sel on"></span><span class="badge">Chuyến bay 03/08</span></div>
+    <div class="th" style="background:linear-gradient(160deg,#ffd9b8,#ee9c5c)"><div class="ln" style="top:30%"></div><span class="sel on"></span><span class="badge">Vé xe 21/07 đã qua</span></div>
+    <div class="th" style="background:linear-gradient(160deg,#ffe8d2,#f4b98b)"><div class="ln" style="top:15%"></div><span class="sel"></span><span class="badge">Vé phim 30/06</span></div>
+    <div class="th" style="background:linear-gradient(160deg,#ffd6b0,#ef9a52)"><div class="ln" style="top:26%"></div><span class="sel on"></span><span class="badge">Boarding 14/06</span></div>
+    <div class="th" style="background:linear-gradient(160deg,#ffe0bf,#f3ab6e)"><div class="ln" style="top:20%"></div><span class="sel on"></span><span class="badge">Vé tàu 02/06 đã qua</span></div>
+    <div class="th" style="background:linear-gradient(160deg,#ffdcbc,#f1a466)"><div class="ln" style="top:24%"></div><span class="sel on"></span><span class="badge">Vé 18/05 đã qua</span></div>
+    <div class="th" style="background:linear-gradient(160deg,#ffe6cc,#f5b47f)"><div class="ln" style="top:19%"></div><span class="sel on"></span><span class="badge">PNR 9X2K · 11/05</span></div>
+    <div class="th" style="background:linear-gradient(160deg,#ffd9b8,#f5a66b)"><div class="ln" style="top:28%"></div><span class="sel on"></span><span class="badge">Vé 02/05 đã qua</span></div>
+  </div>
+</div>
+<div class="float"><div class="btn d">Xoá 22 ảnh · 115 MB</div></div>
+</div><p class="label"><b>S5 · Lưới theo nhóm</b>: badge lý do trên từng ảnh, thanh xoá cố định</p></section>
+
+<!-- S6 -->
+<section class="screen"><div class="phone"><div class="notch"></div><div class="status"><span>9:41</span><span>●●●</span></div>
+<div class="body">
+  <div class="nav"><span class="back">‹ Tổng quan</span><span class="t">Trùng hoàn toàn</span><span class="back">So sánh</span></div>
+  <div class="cluster"><h4><span>Cụm 1 · Giống hệt</span><span>3 ảnh</span></h4>
+    <div class="crow">
+      <div class="th keepbd"><span class="keeptag">GIỮ</span><div class="ln" style="top:24%"></div><span class="badge">Cũ nhất · 02/09</span></div>
+      <div class="th"><div class="ln" style="top:24%"></div><span class="sel on"></span><span class="badge">02/09 10:14</span></div>
+      <div class="th"><div class="ln" style="top:24%"></div><span class="sel on"></span><span class="badge">02/09 10:15</span></div>
+    </div></div>
+  <div class="cluster"><h4><span>Cụm 2 · Giống hệt</span><span>2 ảnh</span></h4>
+    <div class="crow">
+      <div class="th keepbd" style="background:linear-gradient(160deg,#d8c7f2,#ad8ee6)"><span class="keeptag">GIỮ</span><div class="qrbox"></div><span class="badge">Cũ nhất · 28/08</span></div>
+      <div class="th" style="background:linear-gradient(160deg,#d8c7f2,#ad8ee6)"><div class="qrbox"></div><span class="sel on"></span><span class="badge">28/08 19:02</span></div>
+    </div></div>
+  <div class="cluster"><h4><span>Cụm 3 · Gần giống</span><span style="color:var(--ticket)">Bạn chọn</span></h4>
+    <div class="crow">
+      <div class="th keepbd" style="background:linear-gradient(160deg,#c6ead7,#86cfa8)"><span class="keeptag">GIỮ</span><div class="ln" style="top:30%"></div><span class="badge">Nét nhất</span></div>
+      <div class="th" style="background:linear-gradient(160deg,#c6ead7,#86cfa8)"><div class="ln" style="top:34%"></div><span class="sel"></span><span class="badge">Cuộn khác 1 đoạn</span></div>
+    </div></div>
+</div>
+<div class="float"><div class="btn d">Xoá 3 ảnh trùng</div></div>
+</div><p class="label"><b>S6 · Duyệt cụm</b>: viền xanh "GIỮ", chạm để đổi. Gần giống không chọn sẵn</p></section>
+
+<!-- S7 -->
+<section class="screen"><div class="phone"><div class="notch"></div><div class="status"><span>9:41</span><span>●●●</span></div>
+<div class="body">
+  <div class="nav"><span class="back">Đóng</span><span class="t">Vuốt để duyệt</span><span class="back">Xong</span></div>
+  <div class="queue">Hàng chờ xoá: <b>37 ảnh · 210 MB</b></div>
+  <div class="swipe">
+    <div class="th back" style="background:linear-gradient(160deg,#c9d3e8,#9fb0d4)"></div>
+    <div class="th front" style="background:linear-gradient(160deg,#fff0c2,#e8c35c)"><div class="ln" style="top:14%"></div><div class="ln" style="top:22%;right:35%"></div><div class="ln" style="top:30%;right:20%"></div><div class="ov">XOÁ</div></div>
+  </div>
+  <div class="meta">📦 Đơn Shopee đã giao 14/07 · chụp 10/07</div>
+</div>
+<div class="float"><div class="btn d">Xoá</div><div class="btn s" style="flex:.6">↶</div><div class="btn k">Giữ</div></div>
+</div><p class="label"><b>S7 · Chế độ vuốt</b>: vuốt chỉ cho vào hàng chờ, luôn có nút thay cử chỉ</p></section>
+
+<!-- S8a -->
+<section class="screen"><div class="phone"><div class="notch"></div><div class="status"><span>9:41</span><span>●●●</span></div>
+<div class="body"><div class="lt">Tổng quan</div><div class="card hero"><div class="big">~1,2 GB</div></div></div>
+<div class="dim"></div>
+<div class="sheet"><div class="grab"></div>
+  <div style="font-weight:700;font-size:18px">Xoá 318 ảnh?</div>
+  <div style="color:var(--sub);font-size:13px;margin:6px 0 12px">~1,0 GB · Trùng 96 · Đơn hàng 141 · QR 58 · Vé 23</div>
+  <div class="note" style="margin:0 0 12px">🗑 Ảnh sẽ nằm trong <b>Đã xoá gần đây</b> 30 ngày. Bạn có thể khôi phục.<br>🛡 128 biên lai <b>không</b> nằm trong danh sách xoá.</div>
+  <div class="btn d" style="display:block">Xoá 318 ảnh</div>
+  <div class="btn" style="display:block;color:var(--accent);margin-top:6px">Huỷ</div>
+</div>
+</div><p class="label"><b>S8a · Tóm tắt trước xoá</b>, sau đó là hộp thoại của iOS</p></section>
+
+<!-- S8b -->
+<section class="screen"><div class="phone"><div class="notch"></div><div class="status"><span>9:41</span><span>●●●</span></div>
+<div class="body center">
+  <div class="done" style="margin-top:70px">✓</div>
+  <div class="lt" style="margin:6px 0 2px">Đã dọn 318 ảnh</div>
+  <div class="hero"><div class="big" style="color:var(--keep)">~1,0 GB</div></div>
+  <div class="note">ℹ️ Dung lượng được trả lại hoàn toàn sau khi bạn dọn <b>Ảnh → Đã xoá gần đây</b>.</div>
+  <div class="note">🛡 Đã giữ lại 128 biên lai chuyển khoản.</div>
+</div>
+<div class="float"><div class="btn p">Về Tổng quan</div></div>
+</div><p class="label"><b>S8b · Kết quả</b>: trung thực về dung lượng thực tế</p></section>
+
+</main>
+<p class="foot">Màu theo nhóm: Trùng (xanh dương) · Gần trùng (teal) · QR (tím) · Vé (cam) · Đơn hàng (vàng) · Biên lai (xanh lá, được bảo vệ). Thanh nổi dưới dùng Liquid Glass trên iOS 26 và <code>.ultraThinMaterial</code> trên iOS 17–25.</p>
+<script>
+document.getElementById('t').addEventListener('click',()=>{
+  const r=document.documentElement;const cur=r.getAttribute('data-theme');
+  const dark=cur? cur==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  r.setAttribute('data-theme',dark?'light':'dark');
+});
+</script>
+</body>
+</html>
