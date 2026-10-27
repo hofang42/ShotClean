@@ -2,10 +2,12 @@ import ShotCleanCore
 import SwiftUI
 
 /// S6: duplicate and burst clusters, one horizontal row each. Exact / burst: non-keepers come
-/// preselected. Near: preselected only when enabled in settings. Changing the keeper deselects
-/// the new keeper; for exact and burst clusters the previous keeper is selected instead (never a
-/// receipt or protected asset). The keeper can be selected too, so a whole cluster can be
-/// deleted. Bulk selection never includes receipts or protected assets.
+/// preselected. Near: preselected only when enabled in settings. Tapping a photo toggles it;
+/// long press makes it the keeper (the new keeper is deselected; for exact and burst clusters
+/// the previous keeper is selected instead, never a receipt or protected asset). The keeper can
+/// be selected too, so a whole cluster can be deleted. "Giữ ảnh tốt nhất ở mọi nhóm" keeps every
+/// keeper and selects the rest in one tap. Bulk selection never includes receipts, protected or
+/// undated assets.
 struct ClusterReviewView: View {
   private struct Comparison: Identifiable {
     let id = UUID()
@@ -34,23 +36,31 @@ struct ClusterReviewView: View {
           .font(.footnote)
           .foregroundStyle(.secondary)
 
-        if clusters.count > 1 {
-          HStack {
+        if !clusters.isEmpty {
+          HStack(spacing: Theme.Spacing.s) {
             // Every cluster keeps its keeper here; deleting a whole cluster stays a per-row
             // decision ("Xoá cả nhóm"), so one tap can never wipe every copy of every photo.
-            Button(Strings.Cluster.selectAllClusters, systemImage: "checkmark.circle.fill") {
-              let extras = clusters.flatMap { cluster in
-                let keeperID = model.keeper(of: cluster)
-                return cluster.memberIDs.filter { $0 != keeperID && isBulkSelectable($0) }
-              }
-              model.setSelected(true, for: extras)
+            Button {
+              for cluster in clusters { keepBest(in: cluster) }
+            } label: {
+              Label(Strings.Cluster.keepBestEverywhere, systemImage: "wand.and.stars")
+                .frame(maxWidth: .infinity)
             }
-            Spacer()
-            Button(Strings.Grid.selectNone, systemImage: "xmark.circle") {
-              model.setSelected(false, for: memberIDs)
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.keep)
+
+            Button {
+              model.setSelected(false, for: selected)
+            } label: {
+              Label(Strings.Grid.selectNone, systemImage: "xmark.circle")
             }
+            .buttonStyle(.bordered)
+            .fixedSize()
+            .disabled(selected.isEmpty)
           }
-          .font(.subheadline)
+          .font(.subheadline.weight(.semibold))
+          .controlSize(.large)
+          .buttonBorderShape(.roundedRectangle(radius: Theme.Radius.button))
         }
 
         ForEach(clusters, id: \.keeperID) { cluster in
@@ -62,14 +72,11 @@ struct ClusterReviewView: View {
             keeperNote: keeperNote(cluster: cluster, keeper: keeperID),
             onSetKeeper: { model.setKeeper($0, in: cluster) },
             onToggle: { model.toggleSelection($0) },
-            onSelectOthers: {
-              // Bulk selection never includes receipts or protected assets; they can still be
-              // picked one by one.
-              model.setSelected(
-                true, for: cluster.memberIDs.filter { $0 != keeperID && isBulkSelectable($0) })
-            },
+            onSelectOthers: { keepBest(in: cluster) },
             onSelectAll: {
-              model.setSelected(true, for: cluster.memberIDs.filter { isBulkSelectable($0) })
+              // Bulk selection never includes receipts, protected or undated assets; they can
+              // still be picked one by one.
+              model.setSelected(true, for: cluster.memberIDs.filter(model.isBulkSelectable))
             },
             onSelectNone: { model.setSelected(false, for: cluster.memberIDs) },
             onCompare: {
@@ -110,6 +117,7 @@ struct ClusterReviewView: View {
         }
       }
     }
+    .sensoryFeedback(.selection, trigger: selected.count)
     .sheet(item: $comparison) { comparison in
       CompareView(keeperID: comparison.keeperID, otherIDs: comparison.otherIDs)
     }
@@ -121,9 +129,16 @@ struct ClusterReviewView: View {
     return cluster.kind.coreKeeperNote
   }
 
-  /// Receipts and protected assets are never bulk-selected (they can be picked one by one).
-  private func isBulkSelectable(_ id: String) -> Bool {
-    model.result?.verdicts[id]?.category != .transferReceipt && !model.isProtected(id)
+  /// Keeps the cluster's keeper and selects every other bulk-selectable member.
+  private func keepBest(in cluster: Cluster) {
+    let keeperID = model.keeper(of: cluster)
+    if model.selection.contains(keeperID) {
+      model.setSelected(false, for: [keeperID])
+    }
+    let extras = cluster.memberIDs.filter {
+      $0 != keeperID && !model.selection.contains($0) && model.isBulkSelectable($0)
+    }
+    if !extras.isEmpty { model.setSelected(true, for: extras) }
   }
 
   private func members(of cluster: Cluster) -> [ClusterRow.Member] {
@@ -134,6 +149,7 @@ struct ClusterReviewView: View {
         dateText: date.map(Format.date) ?? "",
         spokenDate: date.map(Format.spokenDate) ?? "",
         isReceipt: model.result?.verdicts[id]?.category == .transferReceipt,
+        isBulkSelectable: model.isBulkSelectable(id),
         isSelected: model.selection.contains(id)
       )
     }

@@ -583,6 +583,35 @@ final class AppModel {
     protectedIDs.contains(id)
   }
 
+  /// Whether a bulk action (select all, drag-select, one-tap category or cluster actions) may
+  /// select `id`. Receipts, protected (favorite / album / edited) and undated assets never are;
+  /// they can still be picked one by one.
+  func isBulkSelectable(_ id: String) -> Bool {
+    guard let verdict = result?.verdicts[id] else { return false }
+    return verdict.category != .transferReceipt && verdict.suggestion != .keep
+      && !protectedIDs.contains(id) && !undatedIDs.contains(id)
+  }
+
+  /// Ids a one-tap "select the whole category" selects: every bulk-selectable member, and for
+  /// duplicate / burst categories every cluster member except the cluster's keeper.
+  func bulkSelectableIDs(in category: ShotCleanCore.Category) -> Set<String> {
+    guard let result, category != .transferReceipt else { return [] }
+    let kind: Cluster.Kind? =
+      switch category {
+      case .exactDuplicate: .exact
+      case .nearDuplicate: .near
+      case .burstShot: .burst
+      default: nil
+      }
+    guard let kind else { return Set(result.ids(in: category).filter(isBulkSelectable)) }
+    var ids: Set<String> = []
+    for cluster in result.clusters where cluster.kind == kind {
+      let keeperID = keeper(of: cluster)
+      ids.formUnion(cluster.memberIDs.filter { $0 != keeperID && isBulkSelectable($0) })
+    }
+    return ids
+  }
+
   // MARK: Actions
 
   /// Deletes `ids` after the iOS confirmation dialog (one `PHAssetChangeRequest` batch, one

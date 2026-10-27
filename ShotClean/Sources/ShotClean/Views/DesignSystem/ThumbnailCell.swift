@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Grid cell (S5): thumbnail, one-line reason badge and a selection ring.
-/// Tapping the image opens the detail; tapping the ring toggles selection.
+/// Tapping anywhere on the cell toggles selection (the whole cell is the tap target); the
+/// detail opens from the context menu (long press) or the VoiceOver action.
 struct ThumbnailCell: View {
   let id: String
   let reason: String
@@ -12,21 +13,33 @@ struct ThumbnailCell: View {
   let onOpen: () -> Void
 
   var body: some View {
-    Button(action: onOpen) {
+    Button(action: onToggle) {
       Color.clear
         .aspectRatio(Theme.thumbnailAspectRatio, contentMode: .fit)
         .overlay { ThumbnailImage(id: id) }
+        .overlay {
+          if isSelected {
+            Theme.accent.opacity(0.18)
+          }
+        }
         .overlay(alignment: .bottom) { reasonBadge }
         .clipShape(.rect(cornerRadius: Theme.Radius.thumbnail))
         .overlay {
           RoundedRectangle(cornerRadius: Theme.Radius.thumbnail)
-            .strokeBorder(isSelected ? Theme.accent : .clear, lineWidth: 3)
+            .strokeBorder(isSelected ? Theme.accent : .clear, lineWidth: 4)
+        }
+        .overlay(alignment: .topTrailing) {
+          SelectionRing(isSelected: isSelected)
         }
         .contentShape(.rect(cornerRadius: Theme.Radius.thumbnail))
     }
     .buttonStyle(.plain)
-    .overlay(alignment: .topTrailing) {
-      SelectionRing(isSelected: isSelected, action: onToggle)
+    .contextMenu {
+      Button(Strings.Grid.showDetail, systemImage: "info.circle", action: onOpen)
+      Button(
+        isSelected ? Strings.Detail.deselect : Strings.Detail.select,
+        systemImage: isSelected ? "xmark.circle" : "checkmark.circle",
+        action: onToggle)
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(accessibilityText)

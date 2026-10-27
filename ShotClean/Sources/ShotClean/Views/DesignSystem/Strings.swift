@@ -64,6 +64,13 @@ enum Strings {
     static func protectedDetail(_ count: String) -> String { "\(count) ảnh · luôn giữ lại" }
     static func quickClean(_ count: String) -> String { "Dọn nhanh \(count) ảnh" }
     static let swipeReview = "Vuốt duyệt"
+    static func cleanNow(_ count: String, _ bytes: String) -> String {
+      "Dọn ngay \(count) ảnh · \(bytes)"
+    }
+    static func cleanNowCount(_ count: String) -> String { "Dọn ngay \(count) ảnh" }
+    static let cleanNowHint = "Mở bản tóm tắt để xác nhận trước khi xoá"
+    static func selectCategory(_ category: String) -> String { "Chọn cả nhóm \(category)" }
+    static func deselectCategory(_ category: String) -> String { "Bỏ chọn nhóm \(category)" }
     static let settings = "Cài đặt"
     static let emptyTitle = "Chưa có ảnh chụp màn hình"
     static let emptyMessage = "Khi bạn chụp màn hình, ShotClean sẽ giúp bạn dọn chúng ở đây."
@@ -83,6 +90,7 @@ enum Strings {
     static let selected = "Đã chọn để xoá"
     static let notSelected = "Chưa chọn"
     static let showDetail = "Xem chi tiết"
+    static let dragHint = "Chạm ảnh để chọn. Kéo ngang qua các ảnh để chọn nhanh nhiều ảnh."
     static func deleteButton(_ count: String, _ bytes: String) -> String {
       "Xoá \(count) ảnh · \(bytes)"
     }
@@ -108,10 +116,10 @@ enum Strings {
     static let exactTitle = "Giống hệt"
     static let nearTitle = "Gần giống"
     static let exactIntro =
-      "Mỗi cụm gợi ý giữ 1 ảnh, các ảnh còn lại đã được chọn sẵn. Chạm vòng tròn trên ảnh "
-      + "giữ lại hoặc bấm \"Xoá cả nhóm\" nếu muốn xoá hết."
+      "Mỗi cụm gợi ý giữ 1 ảnh, các ảnh còn lại đã được chọn sẵn. Chạm ảnh để chọn hoặc bỏ "
+      + "chọn, nhấn giữ ảnh để đặt làm ảnh giữ lại."
     static let nearIntro =
-      "Các ảnh gần giống nhau. Bạn tự quyết định — có thể xoá cả ảnh đang giữ."
+      "Các ảnh gần giống nhau. Chạm ảnh để chọn hoặc bỏ chọn, nhấn giữ để đổi ảnh giữ lại."
     static let selectAll = "Xoá cả nhóm"
     static let selectNone = "Bỏ chọn nhóm"
     static let selectAllClusters = "Chọn ảnh thừa ở mọi nhóm"
@@ -125,9 +133,11 @@ enum Strings {
     static let burstTitle = "Chụp liên tiếp"
     static let burstIntro =
       "Ảnh chụp màn hình chụp liên tiếp trong vài giây. Ảnh sau cùng được giữ, các ảnh trước "
-      + "đã được chọn sẵn. Chạm ảnh khác để giữ ảnh đó thay thế."
+      + "đã được chọn sẵn. Chạm ảnh để chọn hoặc bỏ chọn, nhấn giữ để giữ ảnh đó thay thế."
     static let compare = "So sánh"
     static let selectOthers = "Chọn các ảnh còn lại"
+    static let keepBest = "Giữ 1 ảnh tốt nhất"
+    static let keepBestEverywhere = "Giữ ảnh tốt nhất ở mọi nhóm"
     static let setKeeper = "Đặt làm ảnh giữ lại"
     static let isKeeper = "Ảnh giữ lại"
     static let receipt = "Biên lai"
@@ -236,6 +246,27 @@ enum Strings {
     static let copyURL = "Sao chép URL"
     static let copied = "Đã sao chép"
     static func distance(_ value: String) -> String { "Vừa (khoảng cách < \(value))" }
+    static let preset = "Mức dọn"
+    static let presetCautious = "Thận trọng"
+    static let presetBalanced = "Cân bằng"
+    static let presetAggressive = "Mạnh tay"
+    static let presetCustom = "Tuỳ chỉnh"
+    static let presetCautiousFooter =
+      "Chỉ chọn sẵn ảnh chắc chắn thừa. Ảnh gần giống và ảnh hỏng để bạn tự duyệt, ảnh chụp "
+      + "màn hình cũ sau 180 ngày."
+    static let presetBalancedFooter =
+      "Mặc định. Chọn sẵn ảnh trùng, chụp liên tiếp, ảnh hỏng và ảnh chụp màn hình cũ sau 90 ngày."
+    static let presetAggressiveFooter =
+      "Chọn sẵn cả ảnh gần giống và ảnh chụp màn hình cũ sau 30 ngày. Bạn vẫn xem lại trước khi xoá."
+    static let presetCustomFooter =
+      "Bạn đã chỉnh riêng. Chọn một mức ở trên để quay về bộ quy tắc có sẵn."
+    static func preselectPreview(_ count: String, _ bytes: String) -> String {
+      "Sẽ chọn sẵn \(count) ảnh · \(bytes)"
+    }
+    static func preselectPreviewCount(_ count: String) -> String { "Sẽ chọn sẵn \(count) ảnh" }
+    static let advanced = "Nâng cao"
+    static let sensitivityMedium = "Vừa"
+    static func sensitivityCustom(_ value: String) -> String { "Khác (\(value))" }
   }
 
   enum Debug {

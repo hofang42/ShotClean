@@ -55,6 +55,53 @@ struct CleanupSettings: Codable, Equatable, Sendable {
 
   static let `default` = CleanupSettings()
 
+  /// One-tap rule sets on the settings screen. A preset sets every threshold, the enabled
+  /// categories and near-duplicate preselection; scan scope and the keeper rule are personal
+  /// choices and stay as they are.
+  enum Preset: String, CaseIterable, Identifiable, Sendable {
+    /// No near-duplicate preselection, old screenshots after 180 days, camera junk
+    /// (`lowQualityPhoto`) review-only.
+    case cautious
+    /// The defaults.
+    case balanced
+    /// Near duplicates preselected, old screenshots after 30 days.
+    case aggressive
+
+    var id: Self { self }
+  }
+
+  /// `self` with the rules of `preset`; scope, keeper rule and bookkeeping are kept.
+  func applying(_ preset: Preset) -> CleanupSettings {
+    let base = CleanupSettings()
+    var settings = self
+    settings.qrMinAgeDays = base.qrMinAgeDays
+    settings.ticketGraceDays = base.ticketGraceDays
+    settings.orderMaxAgeDays = base.orderMaxAgeDays
+    settings.nearDupMaxDistance = base.nearDupMaxDistance
+    settings.nearDupMaxGapMinutes = base.nearDupMaxGapMinutes
+    settings.oldScreenshotMinAgeDays = base.oldScreenshotMinAgeDays
+    settings.burstMaxGapSeconds = base.burstMaxGapSeconds
+    settings.preselectNearDuplicates = base.preselectNearDuplicates
+    settings.enabledCategories = base.enabledCategories
+    switch preset {
+    case .cautious:
+      settings.preselectNearDuplicates = false
+      settings.oldScreenshotMinAgeDays = 180
+      settings.enabledCategories.remove(.lowQualityPhoto)
+    case .balanced:
+      break
+    case .aggressive:
+      settings.preselectNearDuplicates = true
+      settings.oldScreenshotMinAgeDays = 30
+    }
+    return settings
+  }
+
+  /// The preset whose rules equal these settings, `nil` for a custom mix.
+  var preset: Preset? {
+    Preset.allCases.first { applying($0) == self }
+  }
+
   var thresholds: Thresholds {
     Thresholds(
       qrMinAgeDays: qrMinAgeDays,

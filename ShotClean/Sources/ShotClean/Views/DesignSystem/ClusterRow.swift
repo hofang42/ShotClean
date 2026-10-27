@@ -2,14 +2,17 @@ import ShotCleanCore
 import SwiftUI
 
 /// One duplicate cluster (S6) as a horizontal row. The keeper has a keep-colored border and a
-/// "Giữ" tag that moves with `matchedGeometryEffect`. Tap another photo to make it the keeper;
-/// the ring toggles deletion for that photo — the keeper included, so a whole cluster can go.
+/// "Giữ" tag that moves with `matchedGeometryEffect`. Tapping a photo toggles its deletion — the
+/// keeper included, so a whole cluster can go; long press (context menu) makes it the keeper.
+/// Two clear row actions: "Giữ 1 ảnh tốt nhất" and "Xoá cả nhóm" / "Bỏ chọn nhóm".
 struct ClusterRow: View {
   struct Member: Identifiable {
     let id: String
     let dateText: String
     let spokenDate: String
     let isReceipt: Bool
+    /// Receipts, protected and undated photos are excluded from the row's bulk actions.
+    let isBulkSelectable: Bool
     let isSelected: Bool
   }
 
@@ -20,6 +23,7 @@ struct ClusterRow: View {
   let keeperNote: String
   let onSetKeeper: (String) -> Void
   let onToggle: (String) -> Void
+  /// Selects every member but the keeper and deselects the keeper ("Giữ 1 ảnh tốt nhất").
   let onSelectOthers: () -> Void
   /// Selects every member, the keeper included (receipts excluded).
   let onSelectAll: () -> Void
@@ -55,39 +59,67 @@ struct ClusterRow: View {
   private var header: some View {
     let title = kind.rowTitle
     let category = kind.category
-    return Label {
-      Text(Strings.Cluster.header(title, Format.count(members.count)))
-    } icon: {
-      Image(systemName: category.symbolName)
-        .foregroundStyle(category.tint)
+    return HStack {
+      Label {
+        Text(Strings.Cluster.header(title, Format.count(members.count)))
+      } icon: {
+        Image(systemName: category.symbolName)
+          .foregroundStyle(category.tint)
+      }
+      .font(.subheadline.weight(.semibold))
+      .foregroundStyle(.secondary)
+      .accessibilityAddTraits(.isHeader)
+      Spacer(minLength: Theme.Spacing.s)
+      Button(action: onCompare) {
+        Image(systemName: "rectangle.split.2x1")
+          .font(.body.weight(.semibold))
+          .frame(width: 44, height: 44)
+          .contentShape(.rect)
+      }
+      .disabled(members.count < 2)
+      .accessibilityLabel(Strings.Cluster.compare)
     }
-    .font(.subheadline.weight(.semibold))
-    .foregroundStyle(.secondary)
-    .accessibilityAddTraits(.isHeader)
   }
 
   @ViewBuilder private var actions: some View {
     ViewThatFits(in: .horizontal) {
-      HStack(spacing: Theme.Spacing.m) { actionButtons }
-      VStack(alignment: .leading, spacing: Theme.Spacing.s) { actionButtons }
+      HStack(spacing: Theme.Spacing.s) { actionButtons }
+      VStack(spacing: Theme.Spacing.s) { actionButtons }
     }
-    .font(.subheadline)
+    .font(.subheadline.weight(.semibold))
+    .buttonStyle(.bordered)
+    .controlSize(.large)
+    .buttonBorderShape(.roundedRectangle(radius: Theme.Radius.button))
   }
 
   @ViewBuilder private var actionButtons: some View {
-    Button(Strings.Cluster.compare, systemImage: "rectangle.split.2x1", action: onCompare)
-      .disabled(members.count < 2)
-    Button(
-      Strings.Cluster.selectOthers, systemImage: "checkmark.circle", action: onSelectOthers)
-    // Receipts are never bulk-selected, so they do not count for "whole cluster selected".
-    let deletable = members.filter { !$0.isReceipt }
+    let others = members.filter { $0.id != keeperID }
+    let keepsBest =
+      !others.isEmpty && !members.contains(where: { $0.id == keeperID && $0.isSelected })
+      && others.allSatisfy({ $0.isSelected || !$0.isBulkSelectable })
+    Button(action: onSelectOthers) {
+      Label(Strings.Cluster.keepBest, systemImage: keepsBest ? "checkmark.circle.fill" : "star")
+        .lineLimit(1)
+        .frame(maxWidth: .infinity)
+    }
+    .tint(Theme.keep)
+    // Receipts and protected photos are never bulk-selected, so they do not count for "whole
+    // cluster selected".
+    let deletable = members.filter(\.isBulkSelectable)
     if !deletable.isEmpty {
       if deletable.allSatisfy(\.isSelected) {
-        Button(Strings.Cluster.selectNone, systemImage: "xmark.circle", action: onSelectNone)
+        Button(action: onSelectNone) {
+          Label(Strings.Cluster.selectNone, systemImage: "xmark.circle")
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+        }
       } else {
-        Button(
-          Strings.Cluster.selectAll, systemImage: "trash.circle", role: .destructive,
-          action: onSelectAll)
+        Button(role: .destructive, action: onSelectAll) {
+          Label(Strings.Cluster.selectAll, systemImage: "trash")
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+        }
+        .tint(Theme.destructive)
       }
     }
   }
@@ -95,40 +127,54 @@ struct ClusterRow: View {
   private func memberCell(_ member: Member, index: Int) -> some View {
     let isKeeper = member.id == keeperID
     return Button {
-      onSetKeeper(member.id)
+      onToggle(member.id)
     } label: {
       Color.clear
         .frame(width: cellWidth, height: cellWidth / Theme.thumbnailAspectRatio)
         .overlay { ThumbnailImage(id: member.id, pointSize: CGSize(width: 140, height: 250)) }
         .overlay(alignment: .bottomLeading) { caption(for: member) }
+        .overlay {
+          if member.isSelected {
+            Theme.accent.opacity(0.18)
+          }
+        }
         .clipShape(.rect(cornerRadius: Theme.Radius.thumbnail))
         .overlay {
           RoundedRectangle(cornerRadius: Theme.Radius.thumbnail)
             .strokeBorder(
-              isKeeper ? Theme.keep : (member.isSelected ? Theme.accent : .clear),
-              lineWidth: 3)
+              member.isSelected ? Theme.accent : (isKeeper ? Theme.keep : .clear),
+              lineWidth: 4)
+        }
+        .overlay(alignment: .topTrailing) {
+          SelectionRing(isSelected: member.isSelected)
         }
         .contentShape(.rect(cornerRadius: Theme.Radius.thumbnail))
     }
     .buttonStyle(.plain)
+    .contextMenu {
+      if !isKeeper {
+        Button(Strings.Cluster.setKeeper, systemImage: "star") { onSetKeeper(member.id) }
+      }
+      Button(
+        member.isSelected ? Strings.Detail.deselect : Strings.Detail.select,
+        systemImage: member.isSelected ? "xmark.circle" : "checkmark.circle"
+      ) { onToggle(member.id) }
+      Button(Strings.Cluster.compare, systemImage: "rectangle.split.2x1", action: onCompare)
+    }
     .overlay(alignment: .topLeading) {
       if isKeeper && !member.isSelected {
         keeperTag
           .matchedGeometryEffect(id: "keeper", in: keeperNamespace)
           .padding(Theme.Spacing.xs)
+          .allowsHitTesting(false)
       }
-    }
-    .overlay(alignment: .topTrailing) {
-      SelectionRing(isSelected: member.isSelected) { onToggle(member.id) }
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(Strings.Cluster.member(index + 1, members.count, member.spokenDate))
     .accessibilityValue(accessibilityValue(for: member, isKeeper: isKeeper))
-    .accessibilityAddTraits(isKeeper ? [.isButton, .isSelected] : .isButton)
+    .accessibilityAddTraits(member.isSelected ? [.isButton, .isSelected] : .isButton)
+    .accessibilityAction { onToggle(member.id) }
     .accessibilityAction(named: Strings.Cluster.setKeeper) { onSetKeeper(member.id) }
-    .accessibilityAction(
-      named: member.isSelected ? Strings.Grid.selectNone : Strings.Detail.select
-    ) { onToggle(member.id) }
   }
 
   private func accessibilityValue(for member: Member, isKeeper: Bool) -> String {

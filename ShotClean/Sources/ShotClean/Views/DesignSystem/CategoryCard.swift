@@ -10,6 +10,9 @@ struct CategoryCard: View {
   /// Protected cards (receipts) get a dashed keep-colored border.
   var isProtected = false
   var detail: String?
+  /// Reserves a 44 pt slot at the trailing edge (instead of the chevron) for an action the
+  /// caller overlays outside the `NavigationLink`, e.g. the one-tap category selection.
+  var reservesAccessory = false
 
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -55,7 +58,11 @@ struct CategoryCard: View {
             .foregroundStyle(.secondary)
         }
       }
-      if !dynamicTypeSize.isAccessibilitySize {
+      if reservesAccessory {
+        Color.clear
+          .frame(width: CategoryCard.accessorySize, height: CategoryCard.accessorySize)
+          .accessibilityHidden(true)
+      } else if !dynamicTypeSize.isAccessibilitySize {
         Image(systemName: "chevron.right")
           .font(.footnote.weight(.semibold))
           .foregroundStyle(.tertiary)
@@ -76,6 +83,8 @@ struct CategoryCard: View {
     .contentShape(.rect(cornerRadius: Theme.Radius.card))
     .accessibilityElement(children: .combine)
   }
+
+  static let accessorySize: CGFloat = 44
 
   private var icon: some View {
     Image(systemName: category.symbolName)

@@ -1,9 +1,10 @@
 import ShotCleanCore
 import SwiftUI
 
-/// S4, the root screen: hero with reclaimable space, category cards, protected receipts card
-/// and a floating bar ("Dọn nhanh" + "Vuốt duyệt"). Owns the navigation stack and the single
-/// S8 sheet presentation point.
+/// S4, the root screen: hero with reclaimable space, category cards (tap opens, the trailing
+/// circle selects / deselects the whole category in place), protected receipts card and a
+/// floating bar with one primary CTA ("Dọn ngay N ảnh · X MB" → summary sheet → iOS dialog)
+/// plus "Vuốt duyệt". Owns the navigation stack and the single S8 sheet presentation point.
 struct OverviewView: View {
   private struct Summary {
     var counts: [ShotCategory: Int] = [:]
@@ -16,6 +17,7 @@ struct OverviewView: View {
 
   @Environment(AppModel.self) private var model
   @Environment(AppRouter.self) private var router
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
   var body: some View {
     @Bindable var router = router
@@ -59,9 +61,10 @@ struct OverviewView: View {
 
   private func overview(_ result: AnalysisResult) -> some View {
     let summary = makeSummary(result)
-    // Settings-aware preselection over every enabled category (keeper rule, enabled filters,
-    // protected assets excluded), not the raw Core one; the user's deselections still count.
-    let quickIDs = model.quickCleanIDs
+    // Everything currently selected: the settings-aware preselection (keeper rule, enabled
+    // filters, protected / undated assets excluded) minus the user's deselections, plus what the
+    // user picked with the category toggles or inside a category.
+    let quickIDs = model.selection
     let receipts = result.ids(in: .transferReceipt)
 
     return ScrollView {
@@ -73,16 +76,26 @@ struct OverviewView: View {
           ForEach(ShotCategory.cleanable, id: \.self) { category in
             let count = summary.counts[category] ?? 0
             if count > 0 {
+              let bulkIDs = model.bulkSelectableIDs(in: category)
               NavigationLink(value: route(for: category)) {
                 CategoryCard(
                   category: category,
                   count: count,
                   bytes: summary.bytes[category] ?? 0,
                   badgeText: ShotCategory.reviewOnly.contains(category)
-                    ? Strings.Overview.needsReview : nil
+                    ? Strings.Overview.needsReview : nil,
+                  reservesAccessory: !bulkIDs.isEmpty
                 )
               }
               .buttonStyle(.plain)
+              .overlay(
+                alignment: dynamicTypeSize.isAccessibilitySize ? .bottomLeading : .trailing
+              ) {
+                if !bulkIDs.isEmpty {
+                  categoryToggle(category, ids: bulkIDs)
+                    .padding(Theme.Spacing.l)
+                }
+              }
             }
           }
         }
@@ -108,27 +121,67 @@ struct OverviewView: View {
     .safeAreaInset(edge: .bottom) {
       if !quickIDs.isEmpty || !model.swipeQueue.isEmpty {
         FloatingActionBar {
-          Button {
-            router.requestDeletion(of: quickIDs)
-          } label: {
-            Text(Strings.Overview.quickClean(Format.count(quickIDs.count)))
-              .frame(maxWidth: .infinity)
-          }
-          .buttonStyle(.borderedProminent)
-          .tint(Theme.accent)
-          .disabled(quickIDs.isEmpty)
+          VStack(spacing: Theme.Spacing.s) {
+            if !quickIDs.isEmpty {
+              let bytes = result.reclaimableBytes(quickIDs, sizes: model.sizes)
+              Button {
+                router.requestDeletion(of: quickIDs)
+              } label: {
+                Label(
+                  bytes > 0
+                    ? Strings.Overview.cleanNow(Format.count(quickIDs.count), Format.bytes(bytes))
+                    : Strings.Overview.cleanNowCount(Format.count(quickIDs.count)),
+                  systemImage: "sparkles"
+                )
+                .font(.headline)
+                .monospacedDigit()
+                .frame(maxWidth: .infinity, minHeight: 30)
+              }
+              .buttonStyle(.borderedProminent)
+              .tint(Theme.accent)
+              .accessibilityHint(Strings.Overview.cleanNowHint)
+            }
 
-          Button {
-            router.path.append(.swipe)
-          } label: {
-            Label(Strings.Overview.swipeReview, systemImage: "hand.draw")
-              .frame(maxWidth: .infinity)
+            if !model.swipeQueue.isEmpty {
+              Button {
+                router.path.append(.swipe)
+              } label: {
+                Label(Strings.Overview.swipeReview, systemImage: "hand.draw")
+                  .frame(maxWidth: .infinity)
+              }
+              .buttonStyle(.bordered)
+            }
           }
-          .buttonStyle(.bordered)
-          .disabled(model.swipeQueue.isEmpty)
         }
       }
     }
+  }
+
+  /// One-tap select / deselect of a whole category without opening it. Selects only
+  /// bulk-selectable ids (never receipts, protected or undated assets, never cluster keepers).
+  private func categoryToggle(_ category: ShotCategory, ids: Set<String>) -> some View {
+    let selectedCount = model.selection.intersection(ids).count
+    let isAll = selectedCount == ids.count
+    let symbol =
+      isAll ? "checkmark.circle.fill" : (selectedCount > 0 ? "minus.circle.fill" : "circle")
+    return Button {
+      model.setSelected(!isAll, for: ids)
+    } label: {
+      Image(systemName: symbol)
+        .font(.title2.weight(.semibold))
+        .symbolRenderingMode(.hierarchical)
+        .foregroundStyle(selectedCount > 0 ? Theme.accent : Color.secondary)
+        .contentTransition(.symbolEffect(.replace))
+        .frame(width: CategoryCard.accessorySize, height: CategoryCard.accessorySize)
+        .contentShape(.rect)
+    }
+    .buttonStyle(.plain)
+    .sensoryFeedback(.selection, trigger: isAll)
+    .accessibilityLabel(
+      isAll
+        ? Strings.Overview.deselectCategory(category.title)
+        : Strings.Overview.selectCategory(category.title))
+    .accessibilityValue("\(Format.count(selectedCount)) / \(Format.count(ids.count))")
   }
 
   @ViewBuilder private var banners: some View {
