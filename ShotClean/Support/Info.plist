@@ -18,7 +18,15 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>4</string>
+	<string>5</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.hofang42.ShotClean.scan</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>ShotClean quét ảnh chụp màn hình và ảnh hỏng ngay trên máy để gợi ý xoá. Ảnh không bao giờ rời khỏi iPhone.</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>

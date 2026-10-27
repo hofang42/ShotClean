@@ -263,6 +263,8 @@ final class AppModel {
 
     let total = pending.count
     phase = .scanning(done: 0, total: total)
+    // Keeps the scan running after the user leaves the app (iOS 26+); never starts one itself.
+    BackgroundScan.shared.scanStarted(total: total) { [weak self] in self?.cancelScan() }
     var unavailable: Set<String> = []
     var done = 0
     let clock = ContinuousClock()
@@ -304,6 +306,9 @@ final class AppModel {
       await applyAnalysis(of: entries(of: cache, in: liveAssets), reset: full || result == nil)
     }
     phase = .ready
+    BackgroundScan.shared.scanFinished(
+      completed: !Task.isCancelled, deletable: selection.count,
+      bytes: result?.reclaimableBytes(selection, sizes: sizes) ?? 0)
   }
 
   /// The cache a scan starts from: empty for a full rescan, else the in-memory or stored one.
@@ -333,6 +338,7 @@ final class AppModel {
   private func reportProgress(done: Int, total: Int) {
     guard case .scanning = phase else { return }
     phase = .scanning(done: done, total: total)
+    BackgroundScan.shared.progress(done: done, total: total)
   }
 
   /// Cached entries for `assets`, in asset order (oldest first).

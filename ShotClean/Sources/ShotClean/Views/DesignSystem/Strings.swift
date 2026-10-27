@@ -333,4 +333,14 @@ enum Strings {
     static let utilitySummary = "Ảnh giấy tờ, hoá đơn… đã cũ, bạn xem lại"
     static let otherSummary = ""
   }
+
+  enum Background {
+    static let title = "Đang quét ảnh"
+    static func progress(_ done: String, _ total: String) -> String { "\(done) / \(total) ảnh" }
+    static let doneTitle = "Đã quét xong"
+    static func doneBody(_ count: String, _ bytes: String) -> String {
+      "\(count) ảnh có thể dọn · \(bytes). Mở ShotClean để xem và xoá."
+    }
+    static let doneNothing = "Không có ảnh nào cần dọn."
+  }
 }
