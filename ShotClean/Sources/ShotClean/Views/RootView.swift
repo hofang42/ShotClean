@@ -60,6 +60,7 @@ struct RootView: View {
       guard Self.isQuickCleanURL(url) else { return }
       Task {
         let ids = await model.prepareQuickClean()
+        guard !ids.isEmpty else { return }
         router.path = []
         // iOS still shows its own confirmation dialog after the summary sheet.
         router.requestDeletion(of: ids)

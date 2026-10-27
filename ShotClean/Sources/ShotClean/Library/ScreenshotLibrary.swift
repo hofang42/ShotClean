@@ -2,6 +2,7 @@ import Photos
 import PhotosUI  // PHPhotoLibrary.presentLimitedLibraryPicker(from:) lives in PhotosUI.
 import ShotCleanCore
 import UIKit
+import os  // OSAllocatedUnfairLock
 
 /// Sendable snapshot of the `PHAsset` metadata the app needs. Only this (and plain ids) crosses
 /// concurrency boundaries; `PHAsset` itself never does.
@@ -274,5 +275,42 @@ final class ScreenshotLibrary {
     }
     Log.library.info("Deleted \(count) assets")
     return .deleted(count)
+  }
+}
+
+/// Remembers whether the photo library changed since the last fetch, so returning to the
+/// foreground skips the full fetch (every asset plus every user album) when nothing changed.
+/// Favoriting, editing or adding to an album are library changes too, so protection stays live.
+final class LibraryChangeMonitor: NSObject, PHPhotoLibraryChangeObserver, Sendable {
+  static let shared = LibraryChangeMonitor()
+
+  private struct State: Sendable {
+    var registered = false
+    /// `true` until the first fetch: nothing is known yet.
+    var dirty = true
+  }
+
+  private let state = OSAllocatedUnfairLock(initialState: State())
+
+  /// Registers the observer once. Call only with read access.
+  func startIfNeeded() {
+    let register = state.withLock { state -> Bool in
+      guard !state.registered else { return false }
+      state.registered = true
+      return true
+    }
+    if register { PHPhotoLibrary.shared().register(self) }
+  }
+
+  func photoLibraryDidChange(_ changeInstance: PHChange) {
+    state.withLock { $0.dirty = true }
+  }
+
+  /// Whether the library changed since the previous call; clears the flag.
+  func consumeChange() -> Bool {
+    state.withLock { state in
+      defer { state.dirty = false }
+      return state.dirty
+    }
   }
 }

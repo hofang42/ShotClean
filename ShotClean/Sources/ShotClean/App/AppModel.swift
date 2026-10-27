@@ -136,6 +136,8 @@ final class AppModel {
         await apply(access)
         return
       }
+      // Nothing changed in Photos since the last fetch: skip refetching the whole library.
+      guard LibraryChangeMonitor.shared.consumeChange() else { return }
       let includePhotos = settings.scanCameraPhotos
       let fetched = await Task.detached(priority: .utility) {
         ScreenshotLibrary.fetchAssets(includePhotos: includePhotos)
@@ -229,6 +231,9 @@ final class AppModel {
     var cache = await startingCache(full: full)
 
     let includePhotos = settings.scanCameraPhotos
+    // Changes from here on mark the library dirty for the next foreground check.
+    LibraryChangeMonitor.shared.startIfNeeded()
+    _ = LibraryChangeMonitor.shared.consumeChange()
     let fetched = await Task.detached(priority: .userInitiated) {
       ScreenshotLibrary.fetchAssets(includePhotos: includePhotos)
     }.value

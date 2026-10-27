@@ -177,7 +177,7 @@ struct V12RulesTests {
       TestSupport.features("b", createdAt: at(seconds: 5), metadata: TestSupport.screenshot),
       // 9 s after "c": starts a new run of one.
       TestSupport.features("d", createdAt: at(seconds: 22), metadata: TestSupport.screenshot),
-    ])
+    ], distance: DistanceTable([("a", "b", 0.1), ("b", "c", 0.1)]))
     #expect(result.clusters == [Cluster(kind: .burst, memberIDs: ["a", "b", "c"], keeperID: "c")])
     #expect(result.verdicts["a"]?.category == .burstShot)
     #expect(result.verdicts["a"]?.suggestion == .delete)
@@ -235,7 +235,41 @@ struct V12RulesTests {
     #expect(!result.clusters.contains { $0.kind == .near })
   }
 
+  @Test("different screens taken seconds apart are not a burst")
+  func burstNeedsSameContent() {
+    let pageA = (1...20).map { "alpha\($0)" }.joined(separator: " ")
+    let pageB = (1...20).map { "beta\($0)" }.joined(separator: " ")
+    let byText = analyze([
+      TestSupport.features(
+        "a", createdAt: at(seconds: 0), text: pageA, metadata: TestSupport.screenshot),
+      TestSupport.features(
+        "b", createdAt: at(seconds: 2), text: pageB, metadata: TestSupport.screenshot),
+    ], distance: DistanceTable([("a", "b", 0.1)]))
+    #expect(byText.clusters.isEmpty)
+    let byPicture = analyze(
+      [
+        TestSupport.features("a", createdAt: at(seconds: 0), metadata: TestSupport.screenshot),
+        TestSupport.features("b", createdAt: at(seconds: 2), metadata: TestSupport.screenshot),
+      ],
+      distance: DistanceTable([("a", "b", 0.9)]))
+    #expect(byPicture.clusters.isEmpty)
+  }
+
   // MARK: Camera photos
+
+  @Test("pixel statistics never flag a photo Vision rates acceptable; undated photos are kept")
+  func lowQualityVetoes() {
+    let rated = classifier.classify(
+      TestSupport.features(
+        "n", metadata: TestSupport.photo, luma: 0.01, sharpness: 1, aesthetics: 0.2),
+      now: now)
+    #expect(rated == .other)
+    let undated = classifier.classify(
+      TestSupport.features(
+        "u", createdAt: .distantPast, metadata: TestSupport.photo, luma: 0.01),
+      now: now)
+    #expect(undated == .other)
+  }
 
   @Test(
     "dark, blown-out, blurry or very low scored camera photos are deleted",
@@ -322,7 +356,8 @@ struct V12RulesTests {
         "d", createdAt: TestSupport.daysAgo(70), metadata: MetadataFlags(inUserAlbum: true),
         luma: 0.01),
     ]
-    let result = analyze(features)
+    let result = analyze(features, distance: DistanceTable([("r", "f", 0.1), ("f", "k", 0.1)]))
+    #expect(result.clusters.contains { $0.kind == .burst && $0.memberIDs == ["r", "f", "k"] })
     for id in ["r", "f", "r1", "r2", "p2", "d"] {
       #expect(result.verdicts[id]?.suggestion == .keep, "\(id)")
       #expect(!result.preselectedForDeletion().contains(id), "\(id)")

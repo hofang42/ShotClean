@@ -58,9 +58,9 @@ public struct Thresholds: Sendable, Equatable {
     nearDupMinTextTokens: Int = 15,
     oldScreenshotMinAgeDays: Int = 30,
     burstMaxGap: TimeInterval = 8,
-    blurMaxSharpness: Double = 30,
-    darkMaxLuma: Double = 0.08,
-    brightMinLuma: Double = 0.97,
+    blurMaxSharpness: Double = 15,
+    darkMaxLuma: Double = 0.03,
+    brightMinLuma: Double = 0.985,
     aestheticsMinScore: Double = -0.6,
     utilityMinAgeDays: Int = 30,
     calendar: Calendar = Thresholds.vietnameseCalendar

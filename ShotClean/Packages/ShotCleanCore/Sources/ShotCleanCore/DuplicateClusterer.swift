@@ -37,7 +37,7 @@ public struct DuplicateClusterer: Sendable {
     let ordered = features.sorted(by: Self.chronological)
     let exact = exactClusters(ordered)
     let inExact = Set(exact.flatMap(\.memberIDs))
-    let burst = burstClusters(ordered.filter { !inExact.contains($0.id) })
+    let burst = burstClusters(ordered.filter { !inExact.contains($0.id) }, distance: distance)
     let excluded = Set(
       (exact + burst).flatMap { cluster in cluster.memberIDs.filter { $0 != cluster.keeperID } })
     let near = nearClusters(ordered.filter { !excluded.contains($0.id) }, distance: distance)
@@ -85,9 +85,20 @@ public struct DuplicateClusterer: Sendable {
 
   // MARK: - Burst
 
+  /// Two text-rich shots of one burst must share at least this share of their OCR tokens.
+  static let burstMinTextJaccard = 0.6
+
   /// `ordered` must be chronological and contain no exact-cluster member. Only screenshots with
   /// a known capture date take part; anything else in between does not break a run.
-  private func burstClusters(_ ordered: [ScreenshotFeatures]) -> [Cluster] {
+  ///
+  /// Taking several *different* screens within seconds is common (scrolling through a chat or an
+  /// article), and deleting all but the last would lose content. So consecutive shots only join
+  /// a run when they are not clearly different: feature-print distance (when known) below
+  /// `nearDupMaxMedoidDistance`, and, when both carry enough OCR text, token Jaccard of at least
+  /// `burstMinTextJaccard`. Only consecutive pairs are compared, so cost stays linear.
+  private func burstClusters(
+    _ ordered: [ScreenshotFeatures], distance: (String, String) -> Float?
+  ) -> [Cluster] {
     guard thresholds.burstMaxGap > 0 else { return [] }
     let shots = ordered.filter {
       $0.metadata.isScreenshot
@@ -101,9 +112,19 @@ public struct DuplicateClusterer: Sendable {
       guard run.count >= 2, let newest = run.last else { return }
       clusters.append(Cluster(kind: .burst, memberIDs: run.map(\.id), keeperID: newest.id))
     }
+    func sameContent(_ a: ScreenshotFeatures, _ b: ScreenshotFeatures) -> Bool {
+      if let d = distance(a.id, b.id), d >= thresholds.nearDupMaxMedoidDistance { return false }
+      let tokensA = Self.tokens(a.text)
+      let tokensB = Self.tokens(b.text)
+      guard tokensA.count >= thresholds.nearDupMinTextTokens,
+        tokensB.count >= thresholds.nearDupMinTextTokens
+      else { return true }
+      return Self.jaccard(tokensA, tokensB) >= Self.burstMinTextJaccard
+    }
     for shot in shots {
       if let previous = run.last,
         shot.createdAt.timeIntervalSince(previous.createdAt) > thresholds.burstMaxGap
+          || !sameContent(previous, shot)
       {
         flush()
       }

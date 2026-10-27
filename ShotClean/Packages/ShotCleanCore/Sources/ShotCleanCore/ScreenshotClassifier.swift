@@ -66,7 +66,8 @@ public struct ScreenshotClassifier: Sendable {
         return verdict
       }
     } else {
-      if let verdict = lowQualityPhoto(f) { return verdict }
+      // Undated photos are never suggested for deletion (REV-4).
+      if capturedAt != nil, let verdict = lowQualityPhoto(f) { return verdict }
       if let capturedAt, let verdict = utilityPhoto(f, capturedAt: capturedAt, now: now) {
         return verdict
       }
@@ -206,9 +207,13 @@ public struct ScreenshotClassifier: Sendable {
     ].joined(separator: "|"))
 
   /// A camera photo that is (almost) black or white, blurry, or scored very low by Vision.
+  /// Pixel statistics alone misjudge night shots, snow, fog or plain backgrounds, so when Vision
+  /// rates the photo as acceptable (`aestheticsScore ≥ 0`) only its own low score can flag it.
   private func lowQualityPhoto(_ f: ScreenshotFeatures) -> Verdict? {
     let reason: String
-    if let luma = f.meanLuma, luma < thresholds.darkMaxLuma {
+    if let score = f.aestheticsScore, score >= 0 {
+      return nil
+    } else if let luma = f.meanLuma, luma < thresholds.darkMaxLuma {
       reason = "Ảnh gần như tối đen"
     } else if let luma = f.meanLuma, luma > thresholds.brightMinLuma {
       reason = "Ảnh gần như trắng xoá"

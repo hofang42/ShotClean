@@ -22,7 +22,8 @@ struct CleanupSettings: Codable, Equatable, Sendable {
   var nearDupMaxDistance: Double = 0.35
   var nearDupMaxGapMinutes = 10
   /// Screenshots matching no other rule are suggested for deletion after this many days.
-  var oldScreenshotMinAgeDays = 30
+  /// Conservative default: a quarter of a year, so recent reference screenshots stay.
+  var oldScreenshotMinAgeDays = 90
   /// Screenshots taken at most this many seconds apart form a burst.
   var burstMaxGapSeconds = 8
   /// Also scan camera / saved photos for junk (blurry, dark, duplicates). Changing it rescans.
