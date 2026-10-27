@@ -8,6 +8,8 @@ import Vision
 import os  // OSAllocatedUnfairLock
 
 /// Turns screenshots into `ScreenshotFeatures` (OCR, QR area, feature print, SHA-256), on device.
+/// Camera photos skip OCR and QR (too slow, rarely useful) and get cheap quality signals instead:
+/// mean luma, Laplacian sharpness and, on iOS 18+, Vision aesthetics scores.
 ///
 /// Every PhotoKit / Vision object is created and consumed inside a single child task; only
 /// `ScreenshotAsset`, ids, `Data` and `AnalyzedScreenshot` (all Sendable) enter or leave it.
@@ -30,6 +32,11 @@ struct ScreenshotAnalyzer: Sendable {
   /// of its size. Memory stays bounded: one ~945×2048 RGBA image is ~7.7 MB and at most
   /// `maxConcurrentTasks` (2) are decoded at a time. Re-check fixture recall in R3.
   static let analysisLongSide: CGFloat = 2048
+  /// Long side, in pixels, for camera photos: no OCR, so a smaller image is enough for the
+  /// feature print, quality signals and aesthetics, and keeps decoding cheap.
+  static let photoAnalysisLongSide: CGFloat = 1024
+  /// Long side, in pixels, of the grayscale copy used for luma and sharpness.
+  static let qualityLongSide = 512
 
   let maxConcurrentTasks: Int
 
@@ -136,12 +143,21 @@ struct ScreenshotAnalyzer: Sendable {
   }
 
   private static func analyzeOne(_ asset: ScreenshotAsset, phAsset: PHAsset) async -> Outcome {
-    guard let image = await loadImage(for: phAsset) else {
+    let longSide = asset.isScreenshot ? analysisLongSide : photoAnalysisLongSide
+    guard let image = await loadImage(for: phAsset, longSide: longSide) else {
       if Task.isCancelled { return .skipped }
       Log.analysis.debug("No local image for an asset")
       return .unavailable(asset.id)
     }
-    let vision = runVision(on: image)
+    let vision = runVision(on: image, recognizesContent: asset.isScreenshot)
+    var quality: QualitySignals?
+    var aesthetics: AestheticsSignals?
+    if !asset.isScreenshot {
+      quality = qualitySignals(of: image.cgImage)
+      // A low-quality local thumbnail (original in iCloud) says nothing reliable about blur or
+      // aesthetics; only its brightness is kept. The degraded entry is retried later (NEW-1).
+      if !image.isDegraded { aesthetics = await aestheticsSignals(of: image) }
+    }
     let digest = await sha256(of: phAsset)
     if Task.isCancelled { return .skipped }
     let features = ScreenshotFeatures(
@@ -152,7 +168,13 @@ struct ScreenshotAnalyzer: Sendable {
       fileSize: digest?.byteCount,
       text: vision.text,
       qrAreaRatio: vision.qrAreaRatio,
-      sha256: digest?.hex
+      sha256: digest?.hex,
+      // Live flags; the app refreshes them from every fetch before classifying.
+      metadata: asset.metadata,
+      meanLuma: quality?.meanLuma,
+      sharpness: image.isDegraded ? nil : quality?.sharpness,
+      aestheticsScore: aesthetics?.overallScore,
+      isUtility: aesthetics?.isUtility
     )
     return .analyzed(
       AnalyzedScreenshot(
@@ -179,8 +201,9 @@ struct ScreenshotAnalyzer: Sendable {
     let isDegraded: Bool
   }
 
-  private static func loadImage(for asset: PHAsset) async -> LoadedImage? {
-    let targetSize = analysisSize(width: asset.pixelWidth, height: asset.pixelHeight)
+  private static func loadImage(for asset: PHAsset, longSide: CGFloat) async -> LoadedImage? {
+    let targetSize = analysisSize(
+      width: asset.pixelWidth, height: asset.pixelHeight, longSide: longSide)
     // Best local rendition first; fall back to whatever local thumbnail exists (risk R4).
     for mode in [PHImageRequestOptionsDeliveryMode.highQualityFormat, .fastFormat] {
       if Task.isCancelled { return nil }
@@ -196,11 +219,11 @@ struct ScreenshotAnalyzer: Sendable {
     return nil
   }
 
-  private static func analysisSize(width: Int, height: Int) -> CGSize {
+  private static func analysisSize(width: Int, height: Int, longSide: CGFloat) -> CGSize {
     guard width > 0, height > 0 else {
-      return CGSize(width: analysisLongSide, height: analysisLongSide)
+      return CGSize(width: longSide, height: longSide)
     }
-    let scale = min(1, analysisLongSide / CGFloat(max(width, height)))
+    let scale = min(1, longSide / CGFloat(max(width, height)))
     return CGSize(
       width: (CGFloat(width) * scale).rounded(), height: (CGFloat(height) * scale).rounded())
   }
@@ -259,7 +282,8 @@ struct ScreenshotAnalyzer: Sendable {
     return chosen
   }()
 
-  private static func runVision(on image: LoadedImage) -> VisionOutput {
+  /// OCR and QR run only when `recognizesContent` (screenshots); the feature print always runs.
+  private static func runVision(on image: LoadedImage, recognizesContent: Bool) -> VisionOutput {
     autoreleasepool {
       let handler = VNImageRequestHandler(
         cgImage: image.cgImage, orientation: image.orientation, options: [:])
@@ -279,12 +303,12 @@ struct ScreenshotAnalyzer: Sendable {
       printRequest.revision = VNGenerateImageFeaturePrintRequestRevision2
 
       // Separate perform calls so one failing request does not discard the others.
-      if perform(textRequest, on: handler) {
+      if recognizesContent, perform(textRequest, on: handler) {
         output.text = (textRequest.results ?? [])
           .compactMap { $0.topCandidates(1).first?.string }
           .joined(separator: "\n")
       }
-      if perform(barcodeRequest, on: handler) {
+      if recognizesContent, perform(barcodeRequest, on: handler) {
         let area = (barcodeRequest.results ?? [])
           .filter { $0.symbology == .qr }
           .reduce(0.0) { $0 + Double($1.boundingBox.width * $1.boundingBox.height) }
@@ -306,6 +330,87 @@ struct ScreenshotAnalyzer: Sendable {
         "\(String(describing: type(of: request)), privacy: .public) failed: \(error.localizedDescription, privacy: .public)"
       )
       return false
+    }
+  }
+
+  // MARK: Quality signals (camera photos)
+
+  private struct QualitySignals {
+    /// `0...1`.
+    let meanLuma: Double
+    /// Variance of the 3×3 Laplacian (4-neighbour kernel) on the 0–255 grayscale copy.
+    let sharpness: Double
+  }
+
+  /// Mean luma and Laplacian-variance sharpness of `image`, measured on a grayscale copy whose
+  /// long side is at most `qualityLongSide` px (drawn with a DeviceGray `CGContext`, plain loops,
+  /// no vImage). `nil` when the image cannot be drawn.
+  private static func qualitySignals(of image: CGImage) -> QualitySignals? {
+    let sourceWidth = image.width
+    let sourceHeight = image.height
+    guard sourceWidth > 0, sourceHeight > 0 else { return nil }
+    let scale = min(1, Double(qualityLongSide) / Double(max(sourceWidth, sourceHeight)))
+    let width = max(3, Int((Double(sourceWidth) * scale).rounded()))
+    let height = max(3, Int((Double(sourceHeight) * scale).rounded()))
+    var pixels = [UInt8](repeating: 0, count: width * height)
+    let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+      guard
+        let context = CGContext(
+          data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+          bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(),
+          bitmapInfo: CGImageAlphaInfo.none.rawValue)
+      else { return false }
+      context.interpolationQuality = .medium
+      context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+      return true
+    }
+    guard drawn else { return nil }
+
+    return pixels.withUnsafeBufferPointer { gray -> QualitySignals in
+      var total = 0
+      for value in gray { total += Int(value) }
+      let meanLuma = Double(total) / Double(gray.count) / 255
+
+      var sum = 0.0
+      var sumOfSquares = 0.0
+      var count = 0.0
+      for y in 1..<(height - 1) {
+        let row = y * width
+        for x in 1..<(width - 1) {
+          let index = row + x
+          let center = 4 * Int(gray[index])
+          let neighbours =
+            Int(gray[index - 1]) + Int(gray[index + 1]) + Int(gray[index - width])
+            + Int(gray[index + width])
+          let value = Double(center - neighbours)
+          sum += value
+          sumOfSquares += value * value
+          count += 1
+        }
+      }
+      let mean = sum / count
+      let variance = max(0, sumOfSquares / count - mean * mean)
+      return QualitySignals(meanLuma: meanLuma, sharpness: variance)
+    }
+  }
+
+  private struct AestheticsSignals {
+    let overallScore: Double
+    let isUtility: Bool
+  }
+
+  /// Vision aesthetics scores (iOS 18+); `nil` on older systems or when the request fails.
+  private static func aestheticsSignals(of image: LoadedImage) async -> AestheticsSignals? {
+    guard #available(iOS 18.0, *) else { return nil }
+    do {
+      let observation = try await CalculateImageAestheticsScoresRequest()
+        .perform(on: image.cgImage, orientation: image.orientation)
+      return AestheticsSignals(
+        overallScore: Double(observation.overallScore), isUtility: observation.isUtility)
+    } catch {
+      Log.analysis.error(
+        "Aesthetics request failed: \(error.localizedDescription, privacy: .public)")
+      return nil
     }
   }
 

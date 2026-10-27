@@ -70,6 +70,18 @@ enum Keywords {
     "da ky nhan", "cho giao hang", "cho lay hang", "du kien giao", "don hang da giao",
   ])
 
+  /// Labels that mark an old screenshot as possibly important on their own (address, password).
+  static let importantText = phrases([
+    "dia chi", "so nha", "mat khau", "password", "mat ma", "ma pin", "so tai khoan",
+    "so dien thoai", "sdt",
+  ])
+
+  /// Parts of a Vietnamese address. Each is also an ordinary word once folded ("quán", "dương",
+  /// "huyền"…), so two different ones are needed to count as an address.
+  static let addressParts = phrases([
+    "duong", "phuong", "quan", "huyen", "thi xa", "thi tran", "thanh pho",
+  ])
+
   static func phrases(_ list: [String]) -> [Phrase] { list.map(Phrase.init) }
 }
 

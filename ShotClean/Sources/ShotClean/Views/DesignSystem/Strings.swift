@@ -16,7 +16,7 @@ enum Strings {
 
   enum Onboarding {
     static let title = "Dọn ảnh chụp màn hình, không xoá nhầm."
-    static let benefitScreenshotsOnly = "Chỉ quét ảnh chụp màn hình"
+    static let benefitScreenshotsOnly = "Quét ảnh chụp màn hình và ảnh hỏng"
     static let benefitOnDevice = "Xử lý 100% trên máy"
     static let benefitReceipts = "Biên lai luôn được giữ lại"
     static let start = "Bắt đầu"
@@ -27,7 +27,7 @@ enum Strings {
     static let message =
       "ShotClean cần quyền truy cập toàn bộ thư viện để quét mọi ảnh chụp màn hình "
       + "và chỉ xoá những ảnh bạn đã chọn."
-    static let pointReadOnly = "Chỉ đọc ảnh chụp màn hình, không đụng tới ảnh khác"
+    static let pointReadOnly = "Chỉ đọc ảnh để phân tích, không sửa ảnh nào"
     static let pointNoUpload = "Không ảnh hay văn bản nào rời khỏi máy"
     static let pointConfirm = "Chỉ xoá sau khi iOS hỏi bạn xác nhận"
     static let limitedHint =
@@ -43,8 +43,8 @@ enum Strings {
   }
 
   enum Scan {
-    static let title = "Đang quét ảnh chụp màn hình"
-    static let finding = "Đang tìm ảnh chụp màn hình…"
+    static let title = "Đang quét ảnh"
+    static let finding = "Đang tìm ảnh…"
     static let checkingNew = "Đang kiểm tra ảnh mới…"
     static func progress(_ done: String, _ total: String) -> String { "\(done) / \(total)" }
     static func newPhotos(_ done: String, _ total: String) -> String {
@@ -57,7 +57,7 @@ enum Strings {
     static func reclaimable(_ bytes: String) -> String { "Có thể giải phóng ~\(bytes)" }
     static let nothingToClean = "Thư viện đã gọn gàng"
     static func fromPhotos(_ candidates: String, _ total: String) -> String {
-      "từ \(candidates) ảnh / \(total) ảnh chụp màn hình"
+      "từ \(candidates) ảnh / \(total) ảnh đã quét"
     }
     static let needsReview = "Cần bạn xem"
     static let protectedSection = "Được bảo vệ"
@@ -120,6 +120,12 @@ enum Strings {
     /// Core keeper rule for near duplicates: largest pixel area, ties → oldest (REV-19).
     static let keeperLargest = "Lớn nhất"
     static let keeperChosen = "Bạn chọn"
+    static let keeperNewest = "Mới nhất"
+    static let keeperProtected = "Được bảo vệ"
+    static let burstTitle = "Chụp liên tiếp"
+    static let burstIntro =
+      "Ảnh chụp màn hình chụp liên tiếp trong vài giây. Ảnh sau cùng được giữ, các ảnh trước "
+      + "đã được chọn sẵn. Chạm ảnh khác để giữ ảnh đó thay thế."
     static let compare = "So sánh"
     static let selectOthers = "Chọn các ảnh còn lại"
     static let setKeeper = "Đặt làm ảnh giữ lại"
@@ -184,7 +190,8 @@ enum Strings {
     static let filters = "Bộ lọc tự chọn sẵn"
     static let filtersFooter =
       "Chỉ những loại được bật mới được chọn sẵn để xoá và đưa vào hàng chờ vuốt. "
-      + "Biên lai chuyển khoản không bao giờ được chọn sẵn."
+      + "Biên lai chuyển khoản không bao giờ được chọn sẵn. Ảnh gần trùng và ảnh tài liệu "
+      + "chỉ được đưa vào hàng chờ duyệt."
     static let duplicates = "Ảnh trùng"
     static let preselectNear = "Chọn sẵn ảnh gần giống"
     static let keeperNewest = "Mới nhất"
@@ -208,13 +215,33 @@ enum Strings {
     static let debug = "Gỡ lỗi"
     static func days(_ count: Int) -> String { "\(count) ngày" }
     static func minutes(_ count: Int) -> String { "\(count) phút" }
+    static func seconds(_ count: Int) -> String { "\(count) giây" }
+    static let oldScreenshotAge = "Ảnh chụp màn hình cũ hơn"
+    static let burstGap = "Chụp liên tiếp cách nhau"
+    static let scope = "Phạm vi quét"
+    static let scanCameraPhotos = "Quét cả ảnh chụp bằng camera"
+    static let scopeFooter =
+      "Tìm ảnh tối đen, cháy sáng, bị mờ và ảnh trùng trong ảnh thường. Bật hoặc tắt sẽ "
+      + "quét lại phần thay đổi."
+    static let alwaysKeepProtected = "Luôn giữ ảnh yêu thích, trong album, đã chỉnh sửa"
+    static let shortcuts = "Phím tắt"
+    static let shortcutURL = "shotclean://clean"
+    static let shortcutsText =
+      "Muốn dọn bằng một chạm? Mở ứng dụng Phím tắt, tạo phím tắt hoặc mục Tự động hoá cá nhân "
+      + "với tác vụ \"Mở URL\" và nhập shotclean://clean. Khi chạy, ShotClean quét ảnh mới rồi "
+      + "mở màn hình xác nhận với các ảnh đã chọn sẵn — bạn chỉ cần xác nhận."
+    static let shortcutsNote =
+      "ShotClean không bao giờ tự chạy hay tự xoá ảnh trong nền. Mọi lần xoá đều cần bạn "
+      + "xác nhận trên hộp thoại của iOS."
+    static let copyURL = "Sao chép URL"
+    static let copied = "Đã sao chép"
     static func distance(_ value: String) -> String { "Vừa (khoảng cách < \(value))" }
   }
 
   enum Debug {
     static let title = "Gỡ lỗi"
     static let counts = "Số liệu"
-    static let screenshots = "Ảnh chụp màn hình"
+    static let screenshots = "Ảnh đã quét"
     static let analyzed = "Đã phân tích"
     static let unavailable = "Chỉ có trên iCloud"
     static let clusters = "Cụm trùng / gần trùng"
@@ -245,6 +272,10 @@ enum Strings {
     static let ticket = "Vé hết hạn"
     static let order = "Đơn hàng hết hạn"
     static let receipt = "Biên lai chuyển khoản"
+    static let burst = "Chụp liên tiếp"
+    static let oldScreenshot = "Ảnh chụp màn hình cũ"
+    static let lowQuality = "Ảnh hỏng / mờ / tối"
+    static let utility = "Ảnh tài liệu / tiện ích"
     static let other = "Khác"
 
     static let exactShort = "Trùng"
@@ -253,6 +284,10 @@ enum Strings {
     static let ticketShort = "Vé"
     static let orderShort = "Đơn"
     static let receiptShort = "Biên lai"
+    static let burstShort = "Liên tiếp"
+    static let oldScreenshotShort = "Cũ"
+    static let lowQualityShort = "Ảnh hỏng"
+    static let utilityShort = "Tài liệu"
     static let otherShort = "Khác"
 
     static let exactSummary = "Giữ 1 ảnh mỗi cụm, xoá bản trùng"
@@ -261,6 +296,10 @@ enum Strings {
     static let ticketSummary = "Vé có ngày đã qua"
     static let orderSummary = "Đơn hàng đã quá hạn theo dõi"
     static let receiptSummary = "Luôn giữ lại"
+    static let burstSummary = "Giữ ảnh chụp sau cùng, xoá các ảnh trước"
+    static let oldScreenshotSummary = "Ảnh chụp màn hình đã cũ, không còn cần"
+    static let lowQualitySummary = "Ảnh tối đen, cháy sáng hoặc bị mờ"
+    static let utilitySummary = "Ảnh giấy tờ, hoá đơn… đã cũ, bạn xem lại"
     static let otherSummary = ""
   }
 }

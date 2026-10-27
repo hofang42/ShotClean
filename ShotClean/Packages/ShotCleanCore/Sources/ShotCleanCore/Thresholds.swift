@@ -27,6 +27,22 @@ public struct Thresholds: Sendable, Equatable {
   public var nearDupTextJaccard: Double
   /// Both screenshots need at least this many OCR tokens for the text rule to apply.
   public var nearDupMinTextTokens: Int
+  /// Minimum age (whole days) before a screenshot that matched no other rule is suggested for
+  /// deletion as `oldScreenshot`.
+  public var oldScreenshotMinAgeDays: Int
+  /// Maximum capture gap (seconds) between consecutive screenshots of one burst. `≤ 0` disables
+  /// burst grouping.
+  public var burstMaxGap: TimeInterval
+  /// A camera photo whose sharpness (Laplacian variance, 0–255 scale) is below this is blurry.
+  public var blurMaxSharpness: Double
+  /// A camera photo whose mean luma is below this is (almost) black.
+  public var darkMaxLuma: Double
+  /// A camera photo whose mean luma is above this is (almost) white / blown out.
+  public var brightMinLuma: Double
+  /// A camera photo whose aesthetics `overallScore` is below this is low quality.
+  public var aestheticsMinScore: Double
+  /// Minimum age (whole days) before a utility photo (document, receipt shot…) is sent to review.
+  public var utilityMinAgeDays: Int
   /// Calendar used for day arithmetic, year inference and formatting.
   public var calendar: Calendar
 
@@ -40,6 +56,13 @@ public struct Thresholds: Sendable, Equatable {
     nearDupMaxMedoidDistance: Float = 0.6,
     nearDupTextJaccard: Double = 0.85,
     nearDupMinTextTokens: Int = 15,
+    oldScreenshotMinAgeDays: Int = 30,
+    burstMaxGap: TimeInterval = 8,
+    blurMaxSharpness: Double = 30,
+    darkMaxLuma: Double = 0.08,
+    brightMinLuma: Double = 0.97,
+    aestheticsMinScore: Double = -0.6,
+    utilityMinAgeDays: Int = 30,
     calendar: Calendar = Thresholds.vietnameseCalendar
   ) {
     self.qrMinArea = qrMinArea
@@ -51,6 +74,13 @@ public struct Thresholds: Sendable, Equatable {
     self.nearDupMaxMedoidDistance = nearDupMaxMedoidDistance
     self.nearDupTextJaccard = nearDupTextJaccard
     self.nearDupMinTextTokens = nearDupMinTextTokens
+    self.oldScreenshotMinAgeDays = oldScreenshotMinAgeDays
+    self.burstMaxGap = burstMaxGap
+    self.blurMaxSharpness = blurMaxSharpness
+    self.darkMaxLuma = darkMaxLuma
+    self.brightMinLuma = brightMinLuma
+    self.aestheticsMinScore = aestheticsMinScore
+    self.utilityMinAgeDays = utilityMinAgeDays
     self.calendar = calendar
   }
 

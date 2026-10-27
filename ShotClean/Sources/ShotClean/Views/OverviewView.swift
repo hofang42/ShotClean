@@ -59,8 +59,9 @@ struct OverviewView: View {
 
   private func overview(_ result: AnalysisResult) -> some View {
     let summary = makeSummary(result)
-    // Settings-aware preselection (keeper rule, enabled filters), not the raw Core one.
-    let quickIDs = model.selection.intersection(model.preselectedIDs)
+    // Settings-aware preselection over every enabled category (keeper rule, enabled filters,
+    // protected assets excluded), not the raw Core one; the user's deselections still count.
+    let quickIDs = model.quickCleanIDs
     let receipts = result.ids(in: .transferReceipt)
 
     return ScrollView {
@@ -77,7 +78,8 @@ struct OverviewView: View {
                   category: category,
                   count: count,
                   bytes: summary.bytes[category] ?? 0,
-                  badgeText: category == .nearDuplicate ? Strings.Overview.needsReview : nil
+                  badgeText: ShotCategory.reviewOnly.contains(category)
+                    ? Strings.Overview.needsReview : nil
                 )
               }
               .buttonStyle(.plain)
@@ -205,11 +207,15 @@ struct OverviewView: View {
       summary.counts[category] = ids.count
       summary.bytes[category] = bytes
       summary.reviewCount += ids.count
-      // REV-18: the headline promises only what can be cleaned without review; near
-      // duplicates are never preselected, so they are shown as a card ("Cần bạn xem") only.
-      guard category != .nearDuplicate else { continue }
-      summary.candidateCount += ids.count
-      summary.candidateBytes += bytes
+      // REV-18: the headline promises only what can be cleaned without review; review-only
+      // categories (near duplicates, utility photos) are shown as cards ("Cần bạn xem") only.
+      guard !ShotCategory.reviewOnly.contains(category) else { continue }
+      // Old screenshots with important-looking text are `.review`, not candidates.
+      let candidates = ids.filter { result.verdicts[$0]?.suggestion == .delete }
+      summary.candidateCount += candidates.count
+      summary.candidateBytes +=
+        candidates.count == ids.count
+        ? bytes : result.reclaimableBytes(candidates, sizes: model.sizes)
     }
     return summary
   }
@@ -218,6 +224,7 @@ struct OverviewView: View {
     switch category {
     case .exactDuplicate: .clusters(.exact)
     case .nearDuplicate: .clusters(.near)
+    case .burstShot: .clusters(.burst)
     default: .category(category)
     }
   }

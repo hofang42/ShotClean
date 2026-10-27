@@ -53,8 +53,8 @@ struct ClusterRow: View {
   }
 
   private var header: some View {
-    let title = kind == .exact ? Strings.Cluster.exactTitle : Strings.Cluster.nearTitle
-    let category: ShotCategory = kind == .exact ? .exactDuplicate : .nearDuplicate
+    let title = kind.rowTitle
+    let category = kind.category
     return Label {
       Text(Strings.Cluster.header(title, Format.count(members.count)))
     } icon: {

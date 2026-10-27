@@ -1,10 +1,11 @@
 import ShotCleanCore
 import SwiftUI
 
-/// S6: duplicate clusters, one horizontal row each. Exact: non-keepers come preselected. Near:
-/// preselected only when enabled in settings. Changing the keeper deselects the new keeper; for
-/// exact clusters the previous keeper is selected instead (never a receipt). The keeper can be
-/// selected too, so a whole cluster can be deleted.
+/// S6: duplicate and burst clusters, one horizontal row each. Exact / burst: non-keepers come
+/// preselected. Near: preselected only when enabled in settings. Changing the keeper deselects
+/// the new keeper; for exact and burst clusters the previous keeper is selected instead (never a
+/// receipt or protected asset). The keeper can be selected too, so a whole cluster can be
+/// deleted. Bulk selection never includes receipts or protected assets.
 struct ClusterReviewView: View {
   private struct Comparison: Identifiable {
     let id = UUID()
@@ -29,7 +30,7 @@ struct ClusterReviewView: View {
 
     ScrollView {
       LazyVStack(alignment: .leading, spacing: Theme.Spacing.m) {
-        Text(kind == .exact ? Strings.Cluster.exactIntro : Strings.Cluster.nearIntro)
+        Text(kind.intro)
           .font(.footnote)
           .foregroundStyle(.secondary)
 
@@ -38,12 +39,9 @@ struct ClusterReviewView: View {
             // Every cluster keeps its keeper here; deleting a whole cluster stays a per-row
             // decision ("Xoá cả nhóm"), so one tap can never wipe every copy of every photo.
             Button(Strings.Cluster.selectAllClusters, systemImage: "checkmark.circle.fill") {
-              let verdicts = model.result?.verdicts ?? [:]
               let extras = clusters.flatMap { cluster in
                 let keeperID = model.keeper(of: cluster)
-                return cluster.memberIDs.filter {
-                  $0 != keeperID && verdicts[$0]?.category != .transferReceipt
-                }
+                return cluster.memberIDs.filter { $0 != keeperID && isBulkSelectable($0) }
               }
               model.setSelected(true, for: extras)
             }
@@ -65,19 +63,13 @@ struct ClusterReviewView: View {
             onSetKeeper: { model.setKeeper($0, in: cluster) },
             onToggle: { model.toggleSelection($0) },
             onSelectOthers: {
-              // Bulk selection never includes receipts; they can still be picked one by one.
-              let verdicts = model.result?.verdicts ?? [:]
+              // Bulk selection never includes receipts or protected assets; they can still be
+              // picked one by one.
               model.setSelected(
-                true,
-                for: cluster.memberIDs.filter {
-                  $0 != keeperID && verdicts[$0]?.category != .transferReceipt
-                })
+                true, for: cluster.memberIDs.filter { $0 != keeperID && isBulkSelectable($0) })
             },
             onSelectAll: {
-              let verdicts = model.result?.verdicts ?? [:]
-              model.setSelected(
-                true,
-                for: cluster.memberIDs.filter { verdicts[$0]?.category != .transferReceipt })
+              model.setSelected(true, for: cluster.memberIDs.filter { isBulkSelectable($0) })
             },
             onSelectNone: { model.setSelected(false, for: cluster.memberIDs) },
             onCompare: {
@@ -93,13 +85,11 @@ struct ClusterReviewView: View {
       if clusters.isEmpty {
         ContentUnavailableView(
           Strings.Cluster.empty,
-          systemImage: kind == .exact ? "doc.on.doc" : "square.on.square.dashed")
+          systemImage: kind.category.symbolName)
       }
     }
     .background(Theme.background)
-    .navigationTitle(
-      kind == .exact ? ShotCategory.exactDuplicate.title : ShotCategory.nearDuplicate.title
-    )
+    .navigationTitle(kind.category.title)
     .navigationBarTitleDisplayMode(.inline)
     .safeAreaInset(edge: .bottom) {
       if !clusters.isEmpty {
@@ -127,7 +117,13 @@ struct ClusterReviewView: View {
 
   private func keeperNote(cluster: Cluster, keeper: String) -> String {
     guard keeper == cluster.keeperID else { return Strings.Cluster.keeperChosen }
-    return cluster.kind == .exact ? Strings.Cluster.keeperOldest : Strings.Cluster.keeperLargest
+    if model.isProtected(keeper) { return Strings.Cluster.keeperProtected }
+    return cluster.kind.coreKeeperNote
+  }
+
+  /// Receipts and protected assets are never bulk-selected (they can be picked one by one).
+  private func isBulkSelectable(_ id: String) -> Bool {
+    model.result?.verdicts[id]?.category != .transferReceipt && !model.isProtected(id)
   }
 
   private func members(of cluster: Cluster) -> [ClusterRow.Member] {

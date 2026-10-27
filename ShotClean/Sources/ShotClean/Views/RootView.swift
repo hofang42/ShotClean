@@ -2,6 +2,10 @@ import SwiftUI
 
 /// Routes on `AppModel.phase`. The scan is a state of the overview: once a (cached) result
 /// exists, the overview is shown while new screenshots are scanned in the background.
+///
+/// Handles `shotclean://clean` (Shortcuts hook): scans incrementally, then opens the delete
+/// summary with the quick-clean preselection, so the user only confirms. Nothing runs unless
+/// the URL is opened — by the user or by an automation the user created in Shortcuts.
 struct RootView: View {
   private enum Screen: Equatable {
     case onboarding, permission, denied, scanning, overview
@@ -52,6 +56,15 @@ struct RootView: View {
     .task {
       if model.hasCompletedOnboarding { await model.start() }
     }
+    .onOpenURL { url in
+      guard Self.isQuickCleanURL(url) else { return }
+      Task {
+        let ids = await model.prepareQuickClean()
+        router.path = []
+        // iOS still shows its own confirmation dialog after the summary sheet.
+        router.requestDeletion(of: ids)
+      }
+    }
     .onChange(of: scenePhase) { _, newPhase in
       // E1 / REV-20: access may have changed in Settings, or new screenshots were taken.
       switch newPhase {
@@ -64,5 +77,10 @@ struct RootView: View {
         break
       }
     }
+  }
+
+  /// `shotclean://clean`, case-insensitive.
+  static func isQuickCleanURL(_ url: URL) -> Bool {
+    url.scheme?.lowercased() == "shotclean" && url.host()?.lowercased() == "clean"
   }
 }

@@ -1,11 +1,15 @@
 import Foundation
 
-/// Groups the library into exact-duplicate and near-duplicate clusters.
+/// Groups the library into exact-duplicate, burst and near-duplicate clusters.
 ///
 /// - exact: identical non-nil `sha256` (≥ 2 members), keeper = oldest.
+/// - burst: runs of consecutive screenshots (`metadata.isScreenshot`, known capture date, not in
+///   any exact cluster) whose neighbours are `≤ burstMaxGap` apart, ≥ 2 members, keeper =
+///   newest (the last shot usually shows the final state). One linear pass after the sort.
 /// - near: connected components over pairs with `distance < nearDupMaxDistance` and
-///   capture gap `≤ nearDupMaxGap`. Exact non-keepers are excluded (their keeper stands in
-///   for them). Keeper = largest pixel area, ties → oldest.
+///   capture gap `≤ nearDupMaxGap`. Exact and burst non-keepers are excluded (their keeper
+///   stands in for them). Keeper = largest pixel area, ties → oldest.
+/// - exact and near clusters prefer a protected member (favorite, user album, edited) as keeper.
 ///
 /// - text: pairs of the same pixel size inside the window whose OCR token sets have Jaccard
 ///   similarity `≥ nearDupTextJaccard` also link (slightly scrolled screens), unless their
@@ -18,7 +22,7 @@ import Foundation
 /// `distance` is only queried for pairs inside the time window (sliding window over the
 /// capture-date order), so cost is O(n log n + pairs-in-window), not O(n²).
 /// Output is deterministic: members sorted by `createdAt` (ties by id), clusters sorted by
-/// their first member, exact before near on ties.
+/// their first member, exact before burst before near on ties.
 public struct DuplicateClusterer: Sendable {
   public let thresholds: Thresholds
 
@@ -32,19 +36,30 @@ public struct DuplicateClusterer: Sendable {
   ) -> [Cluster] {
     let ordered = features.sorted(by: Self.chronological)
     let exact = exactClusters(ordered)
+    let inExact = Set(exact.flatMap(\.memberIDs))
+    let burst = burstClusters(ordered.filter { !inExact.contains($0.id) })
     let excluded = Set(
-      exact.flatMap { cluster in cluster.memberIDs.filter { $0 != cluster.keeperID } })
+      (exact + burst).flatMap { cluster in cluster.memberIDs.filter { $0 != cluster.keeperID } })
     let near = nearClusters(ordered.filter { !excluded.contains($0.id) }, distance: distance)
     let byID = Dictionary(ordered.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-    let all: [(cluster: Cluster, first: ScreenshotFeatures)] = (exact + near).compactMap {
+    let all: [(cluster: Cluster, first: ScreenshotFeatures)] = (exact + burst + near).compactMap {
       cluster in
       guard let firstID = cluster.memberIDs.first, let first = byID[firstID] else { return nil }
       return (cluster, first)
     }
     return all.sorted { lhs, rhs in
       if lhs.first.id != rhs.first.id { return Self.chronological(lhs.first, rhs.first) }
-      return lhs.cluster.kind == .exact && rhs.cluster.kind == .near
+      return Self.kindRank(lhs.cluster.kind) < Self.kindRank(rhs.cluster.kind)
     }.map(\.cluster)
+  }
+
+  /// Tie order of clusters that start with the same member.
+  private static func kindRank(_ kind: Cluster.Kind) -> Int {
+    switch kind {
+    case .exact: 0
+    case .burst: 1
+    case .near: 2
+    }
   }
 
   // MARK: - Exact
@@ -58,12 +73,44 @@ public struct DuplicateClusterer: Sendable {
       if groups[hash] == nil { hashOrder.append(hash) }
       groups[hash, default: []].append(feature.id)
     }
+    let isProtected = Set(ordered.filter(\.metadata.isProtected).map(\.id))
     return hashOrder.compactMap { hash in
-      guard let members = groups[hash], members.count >= 2, let keeper = members.first else {
+      guard let members = groups[hash], members.count >= 2, let oldest = members.first else {
         return nil
       }
+      let keeper = members.first(where: isProtected.contains) ?? oldest
       return Cluster(kind: .exact, memberIDs: members, keeperID: keeper)
     }
+  }
+
+  // MARK: - Burst
+
+  /// `ordered` must be chronological and contain no exact-cluster member. Only screenshots with
+  /// a known capture date take part; anything else in between does not break a run.
+  private func burstClusters(_ ordered: [ScreenshotFeatures]) -> [Cluster] {
+    guard thresholds.burstMaxGap > 0 else { return [] }
+    let shots = ordered.filter {
+      $0.metadata.isScreenshot
+        && $0.createdAt >= ScreenshotClassifier.earliestPlausibleCaptureDate
+    }
+    var clusters: [Cluster] = []
+    var run: [ScreenshotFeatures] = []
+    func flush() {
+      defer { run.removeAll(keepingCapacity: true) }
+      // Protected members are kept by their verdict anyway; the keeper stays the newest shot.
+      guard run.count >= 2, let newest = run.last else { return }
+      clusters.append(Cluster(kind: .burst, memberIDs: run.map(\.id), keeperID: newest.id))
+    }
+    for shot in shots {
+      if let previous = run.last,
+        shot.createdAt.timeIntervalSince(previous.createdAt) > thresholds.burstMaxGap
+      {
+        flush()
+      }
+      run.append(shot)
+    }
+    flush()
+    return clusters
   }
 
   // MARK: - Near
@@ -139,10 +186,14 @@ public struct DuplicateClusterer: Sendable {
     }
   }
 
-  /// Largest area wins, then larger known file size; otherwise the earlier one stays.
+  /// A protected member wins, then the largest area, then the larger known file size;
+  /// otherwise the earlier one stays.
   static func isBetterKeeper(_ member: ScreenshotFeatures, than keeper: ScreenshotFeatures)
     -> Bool
   {
+    if member.metadata.isProtected != keeper.metadata.isProtected {
+      return member.metadata.isProtected
+    }
     if member.pixelSize.area != keeper.pixelSize.area {
       return member.pixelSize.area > keeper.pixelSize.area
     }

@@ -2,14 +2,16 @@ import ShotCleanCore
 import SwiftUI
 import UIKit
 
-/// S9: editable cleanup rules and filters, receipt protection, privacy, full rescan, debug.
-/// Rule changes are applied to the cached analyses right away (no rescan).
+/// S9: editable cleanup rules and filters, scan scope, protection, Shortcuts hook, privacy, full
+/// rescan, debug. Rule changes are applied to the cached analyses right away (no rescan);
+/// toggling camera-photo scanning rescans incrementally.
 struct SettingsView: View {
   @Environment(AppModel.self) private var model
   @Environment(\.openURL) private var openURL
   /// Local draft; pushed to the model when it changes.
   @State private var draft = CleanupSettings.default
   @State private var isLoaded = false
+  @State private var didCopyURL = false
 
   private var isScanning: Bool {
     if case .scanning = model.phase { return true }
@@ -48,7 +50,10 @@ struct SettingsView: View {
     Form {
       Section {
         ForEach(
-          [ShotCategory.exactDuplicate, .nearDuplicate, .expiredTicket, .expiredOrder, .qrCode],
+          [
+            ShotCategory.exactDuplicate, .nearDuplicate, .burstShot, .oldScreenshot,
+            .lowQualityPhoto, .utilityPhoto, .expiredTicket, .expiredOrder, .qrCode,
+          ],
           id: \.self
         ) { category in
           Toggle(isOn: categoryBinding(category)) {
@@ -62,6 +67,24 @@ struct SettingsView: View {
       }
 
       Section {
+        Toggle(isOn: $draft.scanCameraPhotos) {
+          Label(Strings.Settings.scanCameraPhotos, systemImage: "camera")
+        }
+      } header: {
+        Text(Strings.Settings.scope)
+      } footer: {
+        Text(Strings.Settings.scopeFooter)
+      }
+
+      Section {
+        Stepper(
+          value: $draft.oldScreenshotMinAgeDays, in: CleanupSettings.oldScreenshotAgeRange,
+          step: 7
+        ) {
+          LabeledContent(
+            Strings.Settings.oldScreenshotAge,
+            value: Strings.Settings.days(draft.oldScreenshotMinAgeDays))
+        }
         Stepper(value: $draft.qrMinAgeDays, in: 0...365) {
           LabeledContent(Strings.Settings.qrAge, value: Strings.Settings.days(draft.qrMinAgeDays))
         }
@@ -102,6 +125,10 @@ struct SettingsView: View {
           LabeledContent(
             Strings.Settings.nearGap, value: Strings.Settings.minutes(draft.nearDupMaxGapMinutes))
         }
+        Stepper(value: $draft.burstMaxGapSeconds, in: CleanupSettings.burstGapRange) {
+          LabeledContent(
+            Strings.Settings.burstGap, value: Strings.Settings.seconds(draft.burstMaxGapSeconds))
+        }
         Button(Strings.Settings.resetDefaults, systemImage: "arrow.uturn.backward") {
           draft = .default
         }
@@ -113,6 +140,32 @@ struct SettingsView: View {
           Label(Strings.Settings.alwaysKeepReceipts, systemImage: "checkmark.shield")
         }
         .disabled(true)
+        Toggle(isOn: .constant(true)) {
+          Label(Strings.Settings.alwaysKeepProtected, systemImage: "heart")
+        }
+        .disabled(true)
+      }
+
+      Section {
+        Text(Strings.Settings.shortcutsText)
+          .font(.subheadline)
+        LabeledContent(Strings.Settings.shortcuts) {
+          Text(Strings.Settings.shortcutURL)
+            .font(.callout.monospaced())
+            .textSelection(.enabled)
+        }
+        Button {
+          UIPasteboard.general.string = Strings.Settings.shortcutURL
+          didCopyURL = true
+        } label: {
+          Label(
+            didCopyURL ? Strings.Settings.copied : Strings.Settings.copyURL,
+            systemImage: didCopyURL ? "checkmark" : "doc.on.doc")
+        }
+      } header: {
+        Text(Strings.Settings.shortcuts)
+      } footer: {
+        Text(Strings.Settings.shortcutsNote)
       }
 
       Section(Strings.Settings.privacy) {

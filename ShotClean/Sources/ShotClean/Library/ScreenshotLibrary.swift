@@ -1,5 +1,6 @@
 import Photos
 import PhotosUI  // PHPhotoLibrary.presentLimitedLibraryPicker(from:) lives in PhotosUI.
+import ShotCleanCore
 import UIKit
 
 /// Sendable snapshot of the `PHAsset` metadata the app needs. Only this (and plain ids) crosses
@@ -10,6 +11,21 @@ struct ScreenshotAsset: Sendable, Hashable {
   let modificationDate: Date?
   let pixelWidth: Int
   let pixelHeight: Int
+  /// `PHAsset.isFavorite` (live metadata, never part of cache validity).
+  var isFavorite = false
+  /// `PHAsset.hasAdjustments` (edited in Photos).
+  var hasAdjustments = false
+  /// `mediaSubtypes` contains `.photoScreenshot`; `false` for camera / saved photos.
+  var isScreenshot = true
+  /// The asset belongs to at least one user-created album.
+  var inUserAlbum = false
+
+  /// Live flags for the Core.
+  var metadata: MetadataFlags {
+    MetadataFlags(
+      isFavorite: isFavorite, hasAdjustments: hasAdjustments, isScreenshot: isScreenshot,
+      inUserAlbum: inUserAlbum)
+  }
 }
 
 /// Photo library access level, mapped from `PHAuthorizationStatus` (`.readWrite`).
@@ -29,7 +45,8 @@ enum PhotoAccess: Sendable, Equatable {
   var canRead: Bool { self == .authorized || self == .limited }
 }
 
-/// PhotoKit access: authorization, fetching screenshots, thumbnails and deletion.
+/// PhotoKit access: authorization, fetching screenshots (and camera photos), thumbnails and
+/// deletion.
 ///
 /// Static helpers are `nonisolated` and only exchange `String` ids / `ScreenshotAsset`, so they can
 /// run off the main actor. Closures handed to PhotoKit are formed in nonisolated code on purpose:
@@ -80,35 +97,67 @@ final class ScreenshotLibrary {
 
   // MARK: Fetching
 
-  /// All screenshots visible to the app, oldest first. Synchronous; call off the main actor.
-  nonisolated static func fetchScreenshots() -> [ScreenshotAsset] {
-    let result = PHAsset.fetchAssets(with: .image, options: screenshotFetchOptions())
+  /// All screenshots visible to the app, plus every other image when `includePhotos`, oldest
+  /// first, with live metadata (favorite, edited, in a user album). Synchronous; call off the
+  /// main actor.
+  nonisolated static func fetchAssets(includePhotos: Bool) -> [ScreenshotAsset] {
+    let result = PHAsset.fetchAssets(
+      with: .image, options: fetchOptions(includePhotos: includePhotos))
+    let albumIDs = userAlbumAssetIDs()
+    let screenshotBit = PHAssetMediaSubtype.photoScreenshot
     var assets: [ScreenshotAsset] = []
     assets.reserveCapacity(result.count)
     for index in 0..<result.count {
       let asset = result.object(at: index)
+      let id = asset.localIdentifier
       assets.append(
         ScreenshotAsset(
-          id: asset.localIdentifier,
+          id: id,
           creationDate: asset.creationDate,
           modificationDate: asset.modificationDate,
           pixelWidth: asset.pixelWidth,
-          pixelHeight: asset.pixelHeight
+          pixelHeight: asset.pixelHeight,
+          isFavorite: asset.isFavorite,
+          hasAdjustments: asset.hasAdjustments,
+          isScreenshot: asset.mediaSubtypes.contains(screenshotBit),
+          inUserAlbum: albumIDs.contains(id)
         ))
     }
-    Log.library.info("Fetched \(assets.count) screenshots")
+    let albumCount = albumIDs.count
+    Log.library.info(
+      "Fetched \(assets.count) assets (photos: \(includePhotos)), \(albumCount) in albums")
     return assets
   }
 
-  /// Number of screenshots visible to the app (cheap; used to detect changes on foreground).
-  nonisolated static func screenshotCount() -> Int {
-    PHAsset.fetchAssets(with: .image, options: screenshotFetchOptions()).count
+  /// Ids of image assets in any user-created album (folders included), built once per fetch:
+  /// one fetch per album, ids only.
+  private nonisolated static func userAlbumAssetIDs() -> Set<String> {
+    let albums = PHAssetCollection.fetchAssetCollections(
+      with: .album, subtype: .albumRegular, options: nil)
+    let options = PHFetchOptions()
+    options.predicate = NSPredicate(format: "mediaType == %ld", PHAssetMediaType.image.rawValue)
+    var ids = Set<String>()
+    for albumIndex in 0..<albums.count {
+      let members = PHAsset.fetchAssets(in: albums.object(at: albumIndex), options: options)
+      for index in 0..<members.count {
+        ids.insert(members.object(at: index).localIdentifier)
+      }
+    }
+    return ids
   }
 
-  private nonisolated static func screenshotFetchOptions() -> PHFetchOptions {
+  /// Number of assets `fetchAssets(includePhotos:)` would return (cheap; used to detect changes
+  /// on foreground).
+  nonisolated static func assetCount(includePhotos: Bool) -> Int {
+    PHAsset.fetchAssets(with: .image, options: fetchOptions(includePhotos: includePhotos)).count
+  }
+
+  private nonisolated static func fetchOptions(includePhotos: Bool) -> PHFetchOptions {
     let options = PHFetchOptions()
-    options.predicate = NSPredicate(
-      format: "(mediaSubtypes & %ld) != 0", Int(PHAssetMediaSubtype.photoScreenshot.rawValue))
+    if !includePhotos {
+      options.predicate = NSPredicate(
+        format: "(mediaSubtypes & %ld) != 0", Int(PHAssetMediaSubtype.photoScreenshot.rawValue))
+    }
     options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
     return options
   }
