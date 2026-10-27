@@ -88,6 +88,14 @@ public struct DuplicateClusterer: Sendable {
       else { return false }
       return Self.jaccard(tokens[i], tokens[j]) >= thresholds.nearDupTextJaccard
     }
+    // Distances already asked for, keyed `i * count + j` (i < j). The drift guard reuses them,
+    // so `distance` is only ever queried inside the time window.
+    var known: [Int: Float] = [:]
+    let count = candidates.count
+    func inWindow(_ i: Int, _ j: Int) -> Bool {
+      abs(candidates[j].createdAt.timeIntervalSince(candidates[i].createdAt))
+        <= thresholds.nearDupMaxGap
+    }
     for i in candidates.indices {
       var j = i + 1
       while j < candidates.count,
@@ -95,6 +103,7 @@ public struct DuplicateClusterer: Sendable {
           <= thresholds.nearDupMaxGap
       {
         let d = distance(candidates[i].id, candidates[j].id)
+        if let d { known[i * count + j] = d }
         if let d, d < thresholds.nearDupMaxDistance {
           components.union(i, j)
         } else if (d ?? 0) < thresholds.nearDupMaxMedoidDistance, textMatch(i, j) {
@@ -115,7 +124,10 @@ public struct DuplicateClusterer: Sendable {
 
     return rootOrder.compactMap { root in
       guard let found = groups[root], found.count >= 2 else { return nil }
-      let indices = dropDrifters(found, candidates: candidates, distance: distance, text: textMatch)
+      let indices = dropDrifters(
+        found,
+        distance: { a, b in known[min(a, b) * count + max(a, b)] },
+        text: { a, b in inWindow(a, b) && textMatch(a, b) })
       guard indices.count >= 2 else { return nil }
       let members = indices.map { candidates[$0] }
       // Members are chronological, so the first best is the oldest among equals.
@@ -138,17 +150,17 @@ public struct DuplicateClusterer: Sendable {
     return false
   }
 
-  /// Largest component the medoid check runs on (it costs O(k²) distance calls).
+  /// Largest component the medoid check runs on (it costs O(k²) lookups).
   private static let maxDriftCheckSize = 40
 
   /// Chained components can link A–B–C although A and C differ. For components of ≥ 3 members,
   /// picks the medoid (lowest mean known distance; a member without any known distance cannot
   /// be the medoid) and drops members whose known distance to it is `≥ nearDupMaxMedoidDistance`
-  /// unless they text-match it. `indices` stay chronological.
+  /// unless they text-match it. `indices` stay chronological. `distance` takes candidate
+  /// indices and only knows pairs measured during linking (inside the time window).
   private func dropDrifters(
     _ indices: [Int],
-    candidates: [ScreenshotFeatures],
-    distance: (String, String) -> Float?,
+    distance: (Int, Int) -> Float?,
     text: (Int, Int) -> Bool
   ) -> [Int] {
     guard indices.count >= 3, indices.count <= Self.maxDriftCheckSize else { return indices }
@@ -158,7 +170,7 @@ public struct DuplicateClusterer: Sendable {
       repeating: Array(repeating: nil, count: indices.count), count: indices.count)
     for a in indices.indices {
       for b in indices.indices where b > a {
-        guard let d = distance(candidates[indices[a]].id, candidates[indices[b]].id) else {
+        guard let d = distance(indices[a], indices[b]) else {
           continue
         }
         table[a][b] = d
