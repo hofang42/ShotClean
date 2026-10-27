@@ -5,11 +5,30 @@
 	<key>CFBundleDisplayName</key>
 	<string>ShotClean</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1</string>
+	<string>1.2</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.hofang42.ShotClean.clean</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>shotclean</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
-	<string>2</string>
+	<string>5</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.hofang42.ShotClean.scan</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>ShotClean quét ảnh chụp màn hình ngay trên máy để gợi ý xoá. Ảnh không bao giờ rời khỏi iPhone.</string>
+	<string>ShotClean quét ảnh chụp màn hình và ảnh hỏng ngay trên máy để gợi ý xoá. Ảnh không bao giờ rời khỏi iPhone.</string>
 	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
 	<true/>
 	<key>UILaunchScreen</key>

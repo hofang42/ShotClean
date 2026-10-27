@@ -1,7 +1,9 @@
 import Foundation
 import ShotCleanCore
 
-/// Everything the app learned about one screenshot. Stored in `AnalysisCache`.
+/// Everything the app learned about one screenshot or photo. Stored in `AnalysisCache`.
+/// `features.metadata` is only a snapshot: the app overwrites it from the latest library fetch
+/// before every classification and never uses it to decide whether an entry is stale.
 struct AnalyzedScreenshot: Sendable, Codable, Equatable {
   let features: ScreenshotFeatures
   /// `PHAsset.modificationDate` at analysis time; a different value invalidates the entry.
@@ -21,10 +23,13 @@ struct AnalyzedScreenshot: Sendable, Codable, Equatable {
 /// (`completeUnlessOpen`) and excluded from backups (OCR text must never leave the device).
 /// Value type: load and save off the main actor.
 struct AnalysisCache: Sendable, Codable {
-  /// 4: feature prints moved to `FeaturePrintStore` (REV-10); 3: `degradedAt` (NEW-1);
-  /// 2: pinned feature-print revision 2, hash of the edited rendition (REV-3/5/12).
+  /// 5 (v1.2): features gained metadata flags and photo quality signals (luma, sharpness,
+  /// aesthetics). Older entries decode, but their screenshots were never measured and lack the
+  /// flags, so everything is analyzed once more; 4: feature prints moved to
+  /// `FeaturePrintStore` (REV-10); 3: `degradedAt` (NEW-1); 2: pinned feature-print revision 2,
+  /// hash of the edited rendition (REV-3/5/12).
   /// Any other version starts fresh (and clears stored prints).
-  static let formatVersion = 4
+  static let formatVersion = 5
   /// Minimum time before a degraded entry of an unchanged asset is analyzed again (NEW-1).
   static let degradedRetryInterval: TimeInterval = 24 * 60 * 60
   private static let fileName = "AnalysisCache.plist"

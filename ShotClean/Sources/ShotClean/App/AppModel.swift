@@ -36,7 +36,8 @@ final class AppModel {
   private(set) var swipeQueue: [String] = []
 
   // Additions beyond the plan contract (read-only, for S4 / Debug).
-  /// Total number of screenshots visible to the app (the "/ 3.800" in S4).
+  /// Total number of scanned assets visible to the app (the "/ 3.800" in S4): screenshots, plus
+  /// camera photos when `settings.scanCameraPhotos` is on.
   private(set) var screenshotCount = 0
   /// Screenshots that could not be analyzed without network access (risk R4).
   private(set) var unavailableIDs: Set<String> = []
@@ -55,6 +56,11 @@ final class AppModel {
   @ObservationIgnored private var featuresByID: [String: ScreenshotFeatures] = [:]
   /// Ids without a known capture date; never preselected (REV-4).
   @ObservationIgnored private var undatedIDs: Set<String> = []
+  /// Live metadata (favorite, edited, album, screenshot) from the latest library fetch. Applied
+  /// to cached features before every classification; never part of cache validity.
+  @ObservationIgnored private var metadataByID: [String: MetadataFlags] = [:]
+  /// Favorites, user-album members and edited assets: never preselected.
+  @ObservationIgnored private var protectedIDs: Set<String> = []
   @ObservationIgnored private var scanTask: Task<Void, Never>?
   /// Ids deleted this session. A scan that started before a deletion never brings them back (REV-6).
   @ObservationIgnored private var deletedIDs: Set<String> = []
@@ -130,11 +136,64 @@ final class AppModel {
         await apply(access)
         return
       }
-      let count = await Task.detached(priority: .utility) {
-        ScreenshotLibrary.screenshotCount()
+      // Nothing changed in Photos since the last fetch: skip refetching the whole library.
+      guard LibraryChangeMonitor.shared.consumeChange() else { return }
+      let includePhotos = settings.scanCameraPhotos
+      let fetched = await Task.detached(priority: .utility) {
+        ScreenshotLibrary.fetchAssets(includePhotos: includePhotos)
       }.value
-      if count != screenshotCount { await rescan(full: false) }
+      let assets = fetched.filter { !deletedIDs.contains($0.id) }
+      let modified = cache.map { cache in
+        assets.contains { cache.entries[$0.id] != nil && cache.validEntry(for: $0) == nil }
+      } ?? false
+      if assets.count != screenshotCount || modified {
+        await rescan(full: false)
+      } else if updateMetadata(from: assets) {
+        // Favorites / albums / edits changed in Photos: protection must apply right away.
+        await reclassifyCached()
+      }
     }
+  }
+
+  /// Stores the live metadata of `assets`. Returns whether anything changed.
+  @discardableResult
+  private func updateMetadata(from assets: [ScreenshotAsset]) -> Bool {
+    let fresh = Dictionary(
+      assets.map { ($0.id, $0.metadata) }, uniquingKeysWith: { first, _ in first })
+    guard fresh != metadataByID else { return false }
+    metadataByID = fresh
+    return true
+  }
+
+  /// Reclassifies the cached analyses, keeping the user's choices. No-op without a cache.
+  private func reclassifyCached() async {
+    guard let cache else { return }
+    let ordered = cache.entries.values.sorted {
+      ($0.features.createdAt, $0.features.id) < ($1.features.createdAt, $1.features.id)
+    }
+    // Nothing published yet: there are no user choices to keep, start from the preselection.
+    let hasResult = result != nil
+    await applyAnalysis(of: ordered, reset: !hasResult, reapply: hasResult)
+  }
+
+  /// Shortcuts hook (`shotclean://clean`, opened by the user or by an automation the user made
+  /// in the Shortcuts app; the app never schedules anything itself). Waits for any running scan,
+  /// runs an incremental scan, and returns the quick-clean ids (the overview's "Dọn nhanh").
+  /// Empty when onboarding or photo access is missing.
+  func prepareQuickClean() async -> Set<String> {
+    guard hasCompletedOnboarding, ScreenshotLibrary.currentAccess().canRead else { return [] }
+    if scanTask == nil { await rescan(full: false) }
+    // A launch or foreground scan may have replaced ours; wait until all of them are done.
+    while let running = scanTask {
+      await running.value
+      if scanTask == running { break }
+    }
+    return quickCleanIDs
+  }
+
+  /// Ids "Dọn nhanh" deletes: the preselection, minus anything the user deselected.
+  var quickCleanIDs: Set<String> {
+    selection.intersection(preselectedIDs)
   }
 
   /// Extends a limited selection with the system picker, then rescans incrementally.
@@ -171,11 +230,16 @@ final class AppModel {
   private func scan(full: Bool) async {
     var cache = await startingCache(full: full)
 
+    let includePhotos = settings.scanCameraPhotos
+    // Changes from here on mark the library dirty for the next foreground check.
+    LibraryChangeMonitor.shared.startIfNeeded()
+    _ = LibraryChangeMonitor.shared.consumeChange()
     let fetched = await Task.detached(priority: .userInitiated) {
-      ScreenshotLibrary.fetchScreenshots()
+      ScreenshotLibrary.fetchAssets(includePhotos: includePhotos)
     }.value
     let assets = fetched.filter { !deletedIDs.contains($0.id) }
     screenshotCount = assets.count
+    let metadataChanged = updateMetadata(from: assets)
     // REV-8: keep thumbnails across scans; drop only ids that vanished or were modified.
     let modified = Set(
       assets.filter { cache.entries[$0.id] != nil && cache.validEntry(for: $0) == nil }
@@ -188,7 +252,7 @@ final class AppModel {
     let scanStart = Date()
     let pending = assets.filter { cache.needsAnalysis($0, now: scanStart) }
     Log.app.info(
-      "Scan: \(assets.count) screenshots, \(pending.count) to analyze, full=\(full, privacy: .public)"
+      "Scan: \(assets.count) assets, \(pending.count) to analyze, full=\(full, privacy: .public)"
     )
 
     // Show cached results right away; the scan continues behind them.
@@ -199,6 +263,8 @@ final class AppModel {
 
     let total = pending.count
     phase = .scanning(done: 0, total: total)
+    // Keeps the scan running after the user leaves the app (iOS 26+); never starts one itself.
+    BackgroundScan.shared.scanStarted(total: total) { [weak self] in self?.cancelScan() }
     var unavailable: Set<String> = []
     var done = 0
     let clock = ContinuousClock()
@@ -234,11 +300,15 @@ final class AppModel {
     self.cache = cache
 
     // REV-11: nothing new and the cached result is already shown → skip reclassifying.
-    if full || !pending.isEmpty || !pruned.isEmpty || !hadResult {
+    // Changed live metadata (favorite, album, edit) always reclassifies: protection is a rule.
+    if full || !pending.isEmpty || !pruned.isEmpty || !hadResult || metadataChanged {
       scheduleSave(cache)
       await applyAnalysis(of: entries(of: cache, in: liveAssets), reset: full || result == nil)
     }
     phase = .ready
+    BackgroundScan.shared.scanFinished(
+      completed: !Task.isCancelled, deletable: selection.count,
+      bytes: result?.reclaimableBytes(selection, sizes: sizes) ?? 0)
   }
 
   /// The cache a scan starts from: empty for a full rescan, else the in-memory or stored one.
@@ -268,6 +338,7 @@ final class AppModel {
   private func reportProgress(done: Int, total: Int) {
     guard case .scanning = phase else { return }
     phase = .scanning(done: done, total: total)
+    BackgroundScan.shared.progress(done: done, total: total)
   }
 
   /// Cached entries for `assets`, in asset order (oldest first).
@@ -324,24 +395,34 @@ final class AppModel {
     let generation = analysisGeneration
     let now = Date()
     let thresholds = settings.thresholds
+    // Live metadata wins over the snapshot stored with the analysis.
+    let liveMetadata = metadataByID
+    let features = entries.map { entry -> ScreenshotFeatures in
+      var copy = entry.features
+      if let metadata = liveMetadata[copy.id] { copy.metadata = metadata }
+      return copy
+    }
     let analysis = await Task.detached(priority: .userInitiated) {
-      AppModel.classify(entries, now: now, thresholds: thresholds)
+      AppModel.classify(features, now: now, thresholds: thresholds)
     }.value
     // A newer analysis (e.g. after a deletion) started meanwhile; it wins.
     guard generation == analysisGeneration else { return }
 
     featuresByID = Dictionary(
-      entries.map { ($0.features.id, $0.features) }, uniquingKeysWith: { first, _ in first })
+      features.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     var sizes: [String: Int64] = [:]
     var undated: Set<String> = []
-    for entry in entries {
-      if let size = entry.features.fileSize { sizes[entry.features.id] = size }
-      if !CaptureDate.isKnown(entry.features.createdAt) { undated.insert(entry.features.id) }
+    var protected: Set<String> = []
+    for feature in features {
+      if let size = feature.fileSize { sizes[feature.id] = size }
+      if !CaptureDate.isKnown(feature.createdAt) { undated.insert(feature.id) }
+      if feature.metadata.isProtected { protected.insert(feature.id) }
     }
     self.sizes = sizes
     result = analysis
 
     undatedIDs = undated
+    protectedIDs = protected
     let preselected = preselection(for: analysis)
     preselectedIDs = preselected
     let known = Set(featuresByID.keys)
@@ -359,12 +440,12 @@ final class AppModel {
 
   /// Runs `LibraryAnalyzer` with a feature-print distance. Off the main actor.
   nonisolated private static func classify(
-    _ entries: [AnalyzedScreenshot], now: Date, thresholds: Thresholds
+    _ features: [ScreenshotFeatures], now: Date, thresholds: Thresholds
   ) -> AnalysisResult {
     // REV-10: prints are read lazily, only for the pairs the clusterer compares.
     let index = FeaturePrintIndex(load: FeaturePrintStore.read)
     return LibraryAnalyzer(thresholds: thresholds).analyze(
-      entries.map(\.features),
+      features,
       distance: { index.distance($0, $1) },
       now: now
     )
@@ -398,13 +479,18 @@ final class AppModel {
       defaultKeeper: defaultKeeper(of: cluster))
   }
 
-  /// Keeper picked by `settings.keeperRule`. Receipts win so they are never the ones deleted.
+  /// Keeper picked by `settings.keeperRule` (duplicates) or the Core (bursts: newest). Receipts
+  /// win, then protected assets, so they are never the ones deleted.
   private func defaultKeeper(of cluster: Cluster) -> String {
     let members = cluster.memberIDs
     if let receipt = members.first(where: {
       result?.verdicts[$0]?.category == .transferReceipt
     }) {
       return receipt
+    }
+    if cluster.kind == .burst { return cluster.keeperID }
+    if let protected = members.first(where: protectedIDs.contains) {
+      return protected
     }
     let date: (String) -> Date = { self.featuresByID[$0]?.createdAt ?? .distantPast }
     switch settings.keeperRule {
@@ -418,16 +504,20 @@ final class AppModel {
 
   /// Ids preselected for deletion under the current settings.
   /// - REV-4: a screenshot without a capture date is never preselected.
+  /// - Favorites, user-album members and edited assets are never preselected.
   /// - Only enabled categories; receipts never.
+  /// - Bursts follow `.burstShot`: everyone but the keeper (newest).
   /// - Duplicate clusters follow the keeper rule: everyone but the default keeper.
   /// - A member matched by another rule (receipt, expired ticket…) keeps that rule's say.
   /// - Order independent: a keeper of any enabled cluster is never picked by the cluster pass,
   ///   even when it is a non-keeper of an overlapping cluster (exact keeper inside a near one).
   private func preselection(for analysis: AnalysisResult) -> Set<String> {
     let enabled = settings.enabledCategories
-    // Exact-duplicate verdicts are decided below with the keeper rule, not by the Core keeper.
+    // Exact-duplicate and burst verdicts are decided below with the keeper, not by the Core.
     let byRule = analysis.preselectedForDeletion().filter { id in
-      guard let category = analysis.verdicts[id]?.category, category != .exactDuplicate else {
+      guard let category = analysis.verdicts[id]?.category,
+        category != .exactDuplicate, category != .burstShot
+      else {
         return false
       }
       return enabled.contains(category)
@@ -435,47 +525,97 @@ final class AppModel {
     var byCluster: Set<String> = []
     var keepers: Set<String> = []
     for cluster in analysis.clusters {
-      let kindEnabled =
-        cluster.kind == .exact
-        ? enabled.contains(.exactDuplicate)
-        : enabled.contains(.nearDuplicate) && settings.preselectNearDuplicates
+      let kindEnabled: Bool
+      // Verdicts the cluster pass may override; any other rule keeps its own say.
+      let clusterCategories: Set<ShotCleanCore.Category>
+      switch cluster.kind {
+      case .exact:
+        kindEnabled = enabled.contains(.exactDuplicate)
+        clusterCategories = [.exactDuplicate, .nearDuplicate, .other]
+      case .burst:
+        kindEnabled = enabled.contains(.burstShot)
+        clusterCategories = [.burstShot, .other]
+      case .near:
+        kindEnabled = enabled.contains(.nearDuplicate) && settings.preselectNearDuplicates
+        clusterCategories = [.exactDuplicate, .nearDuplicate, .other]
+      }
       guard kindEnabled else { continue }
       let keeper = defaultKeeper(of: cluster)
       keepers.insert(keeper)
       for id in cluster.memberIDs where id != keeper {
-        let category = analysis.verdicts[id]?.category
-        if category == .exactDuplicate || category == .nearDuplicate || category == .other {
+        // A member matched by another rule keeps that rule's say; `.keep` (protected) never.
+        guard let verdict = analysis.verdicts[id], verdict.suggestion != .keep else { continue }
+        if clusterCategories.contains(verdict.category) {
           byCluster.insert(id)
         }
       }
     }
-    return byRule.union(byCluster.subtracting(keepers)).subtracting(undatedIDs)
+    return byRule.union(byCluster.subtracting(keepers))
+      .subtracting(undatedIDs)
+      .subtracting(protectedIDs)
   }
 
-  /// Applies new rules: saves them and reclassifies the cached analyses (no rescan).
+  /// Applies new rules: saves them and reclassifies the cached analyses (no rescan). Turning
+  /// camera-photo scanning on or off changes what is fetched: incremental rescan instead.
   func updateSettings(_ newSettings: CleanupSettings) async {
     guard newSettings != settings else { return }
+    let scopeChanged = newSettings.scanCameraPhotos != settings.scanCameraPhotos
     settings = newSettings
     newSettings.save(to: defaults)
-    // No cache yet (first scan running): that scan classifies with the new settings.
-    guard let cache else { return }
-    let ordered = cache.entries.values.sorted {
-      ($0.features.createdAt, $0.features.id) < ($1.features.createdAt, $1.features.id)
+    if scopeChanged, hasCompletedOnboarding, ScreenshotLibrary.currentAccess().canRead {
+      await rescan(full: false)
+      return
     }
-    // Nothing published yet: there are no user choices to keep, start from the preselection.
-    let hasResult = result != nil
-    await applyAnalysis(of: ordered, reset: !hasResult, reapply: hasResult)
+    // No cache yet (first scan running): that scan classifies with the new settings.
+    await reclassifyCached()
   }
 
-  /// The user picks a new keeper: it is deselected. For exact duplicates the previous keeper is
-  /// selected instead, unless it is a receipt. Near duplicates are never auto-selected.
+  /// The user picks a new keeper: it is deselected. For exact duplicates and bursts the previous
+  /// keeper is selected instead, unless it is a receipt or protected. Near duplicates are never
+  /// auto-selected.
   func setKeeper(_ newKeeper: String, in cluster: Cluster) {
     let oldKeeper = keeper(of: cluster)
     let oldIsReceipt = result?.verdicts[oldKeeper]?.category == .transferReceipt
+    let selectsPrevious =
+      cluster.kind != .near && !oldIsReceipt && !protectedIDs.contains(oldKeeper)
     selectionState.setKeeper(
       newKeeper, coreKeeperID: cluster.keeperID, members: cluster.memberIDs,
       defaultKeeper: defaultKeeper(of: cluster),
-      selectPreviousKeeper: cluster.kind == .exact && !oldIsReceipt)
+      selectPreviousKeeper: selectsPrevious)
+  }
+
+  /// Favorite, in a user album or edited: never preselected or bulk-selected.
+  func isProtected(_ id: String) -> Bool {
+    protectedIDs.contains(id)
+  }
+
+  /// Whether a bulk action (select all, drag-select, one-tap category or cluster actions) may
+  /// select `id`. Receipts, protected (favorite / album / edited) and undated assets never are;
+  /// they can still be picked one by one.
+  func isBulkSelectable(_ id: String) -> Bool {
+    guard let verdict = result?.verdicts[id] else { return false }
+    return verdict.category != .transferReceipt && verdict.suggestion != .keep
+      && !protectedIDs.contains(id) && !undatedIDs.contains(id)
+  }
+
+  /// Ids a one-tap "select the whole category" selects: every bulk-selectable member, and for
+  /// duplicate / burst categories every cluster member except the cluster's keeper.
+  func bulkSelectableIDs(in category: ShotCleanCore.Category) -> Set<String> {
+    guard let result, category != .transferReceipt else { return [] }
+    let kind: Cluster.Kind? =
+      switch category {
+      case .exactDuplicate: .exact
+      case .nearDuplicate: .near
+      case .burstShot: .burst
+      default: nil
+      }
+    guard let kind else { return Set(result.ids(in: category).filter(isBulkSelectable)) }
+    var ids: Set<String> = []
+    for cluster in result.clusters where cluster.kind == kind {
+      let keeperID = keeper(of: cluster)
+      ids.formUnion(cluster.memberIDs.filter { $0 != keeperID && isBulkSelectable($0) })
+    }
+    return ids
   }
 
   // MARK: Actions

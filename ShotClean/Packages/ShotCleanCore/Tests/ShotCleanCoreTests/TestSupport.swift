@@ -33,7 +33,12 @@ enum TestSupport {
     sha: String? = nil,
     width: Int = 1170,
     height: Int = 2532,
-    fileSize: Int64? = nil
+    fileSize: Int64? = nil,
+    metadata: MetadataFlags = MetadataFlags(),
+    luma: Double? = nil,
+    sharpness: Double? = nil,
+    aesthetics: Double? = nil,
+    isUtility: Bool? = nil
   ) -> ScreenshotFeatures {
     ScreenshotFeatures(
       id: id,
@@ -42,7 +47,17 @@ enum TestSupport {
       fileSize: fileSize,
       text: text,
       qrAreaRatio: qr,
-      sha256: sha
+      sha256: sha,
+      metadata: metadata,
+      meanLuma: luma,
+      sharpness: sharpness,
+      aestheticsScore: aesthetics,
+      isUtility: isUtility
     )
   }
+
+  /// Metadata of a plain, unprotected screenshot.
+  static let screenshot = MetadataFlags(isScreenshot: true)
+  /// Metadata of a plain, unprotected camera photo.
+  static let photo = MetadataFlags()
 }

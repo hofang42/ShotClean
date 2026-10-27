@@ -1,10 +1,15 @@
 import Foundation
 
-/// Classifies a single screenshot by its own content (receipt, ticket, order, QR).
-/// Duplicate detection needs the whole library and lives in `DuplicateClusterer` /
-/// `LibraryAnalyzer`, so this never returns `.exactDuplicate` or `.nearDuplicate`.
+/// Classifies a single screenshot or photo by its own content and metadata.
+/// Duplicate and burst detection need the whole library and live in `DuplicateClusterer` /
+/// `LibraryAnalyzer`, so this never returns `.exactDuplicate`, `.nearDuplicate` or `.burstShot`.
 ///
-/// Priority: `transferReceipt` > `expiredTicket` > `expiredOrder` > `qrCode` > `other`.
+/// Priority: `transferReceipt` > protected (`.other` + `.keep`) > `expiredTicket` > `expiredOrder`
+/// > `qrCode` > `lowQualityPhoto` / `oldScreenshot` > `utilityPhoto` > `other`.
+/// - Protected = favorite, in a user album or edited; never suggested for deletion.
+/// - `oldScreenshot`: screenshots only, never a still-valid ticket or order; important-looking
+///   text → `.review` instead of `.delete`.
+/// - `lowQualityPhoto` / `utilityPhoto`: camera photos only (not screenshots).
 public struct ScreenshotClassifier: Sendable {
   public let thresholds: Thresholds
 
@@ -24,6 +29,9 @@ public struct ScreenshotClassifier: Sendable {
       return Verdict(
         category: .transferReceipt, suggestion: .keep, reason: "Biên lai chuyển khoản — luôn giữ")
     }
+    if let reason = Self.protectionReason(f.metadata) {
+      return Verdict(category: .other, suggestion: .keep, reason: reason)
+    }
     // An unknown capture date must never make a screenshot look old (REV-4): age-based
     // fallbacks are skipped and year-less dates are read relative to `now`.
     let capturedAt: Date? = f.createdAt >= Self.earliestPlausibleCaptureDate ? f.createdAt : nil
@@ -38,16 +46,41 @@ public struct ScreenshotClassifier: Sendable {
       cachedDates = found
       return found
     }
-    if isTicket(text), let verdict = expiredTicket(capturedAt, dates: dates(), now: now) {
+    let ticket = isTicket(text)
+    if ticket, let verdict = expiredTicket(capturedAt, dates: dates(), now: now) {
       return verdict
     }
-    if isOrder(text), let verdict = expiredOrder(capturedAt, dates: dates(), now: now) {
+    let order = isOrder(text)
+    if order, let verdict = expiredOrder(capturedAt, dates: dates(), now: now) {
       return verdict
     }
     if let capturedAt, let verdict = qrCode(f, capturedAt: capturedAt, now: now) {
       return verdict
     }
+    if f.metadata.isScreenshot {
+      // A ticket or order that has not expired (e.g. a boarding pass for a later flight) is never
+      // "just old".
+      if !ticket, !order, let capturedAt,
+        let verdict = oldScreenshot(text, folded: folded, capturedAt, now: now)
+      {
+        return verdict
+      }
+    } else {
+      // Undated photos are never suggested for deletion (REV-4).
+      if capturedAt != nil, let verdict = lowQualityPhoto(f) { return verdict }
+      if let capturedAt, let verdict = utilityPhoto(f, capturedAt: capturedAt, now: now) {
+        return verdict
+      }
+    }
     return .other
+  }
+
+  /// Vietnamese reason why a protected asset is kept, `nil` when it is not protected.
+  static func protectionReason(_ metadata: MetadataFlags) -> String? {
+    if metadata.isFavorite { return "Ảnh yêu thích — luôn giữ" }
+    if metadata.inUserAlbum { return "Nằm trong album của bạn — luôn giữ" }
+    if metadata.hasAdjustments { return "Ảnh đã chỉnh sửa — luôn giữ" }
+    return nil
   }
 
   // MARK: - Rules
@@ -134,6 +167,74 @@ public struct ScreenshotClassifier: Sendable {
     let age = calendar.wholeDays(from: capturedAt, to: now)
     guard age >= thresholds.qrMinAgeDays else { return nil }
     return Verdict(category: .qrCode, suggestion: .delete, reason: "Mã QR, chụp \(age) ngày trước")
+  }
+
+  /// A screenshot no other rule matched, at least `oldScreenshotMinAgeDays` old.
+  private func oldScreenshot(
+    _ text: TokenizedText, folded: String, _ capturedAt: Date, now: Date
+  ) -> Verdict? {
+    let age = calendar.wholeDays(from: capturedAt, to: now)
+    guard age >= thresholds.oldScreenshotMinAgeDays else { return nil }
+    if Self.looksImportant(text, folded: folded) {
+      return Verdict(
+        category: .oldScreenshot, suggestion: .review,
+        reason: "Ảnh cũ \(age) ngày nhưng có thể chứa thông tin quan trọng (số tài khoản, "
+          + "địa chỉ, số điện thoại, mật khẩu)")
+    }
+    return Verdict(
+      category: .oldScreenshot, suggestion: .delete,
+      reason: "Ảnh chụp màn hình cũ, chụp \(age) ngày trước")
+  }
+
+  /// Account-number-like digit runs, phone numbers, address or password labels.
+  static func looksImportant(_ text: TokenizedText, folded: String) -> Bool {
+    if text.containsAny(Keywords.importantText) { return true }
+    if text.count(of: Keywords.addressParts) >= 2 { return true }
+    guard let importantNumberRegex else {
+      assertionFailure("invalid important-number pattern")
+      return false
+    }
+    return importantNumberRegex.firstMatch(
+      in: folded, range: NSRange(folded.startIndex..., in: folded)) != nil
+  }
+
+  /// 9–16 digit runs (account / card / ID / phone numbers written without separators) and
+  /// Vietnamese phone numbers written in groups (`0912 345 678`, `+84 912.345.678`).
+  private static let importantNumberRegex: NSRegularExpression? = try? NSRegularExpression(
+    pattern: [
+      #"(?<!\d)\d{9,16}(?!\d)"#,
+      #"(?<![\d+])(?:\+84|84|0)\s?\d{2,3}[\s.\-]\d{3}[\s.\-]\d{3,4}(?!\d)"#,
+    ].joined(separator: "|"))
+
+  /// A camera photo that is (almost) black or white, blurry, or scored very low by Vision.
+  /// Pixel statistics alone misjudge night shots, snow, fog or plain backgrounds, so when Vision
+  /// rates the photo as acceptable (`aestheticsScore ≥ 0`) only its own low score can flag it.
+  private func lowQualityPhoto(_ f: ScreenshotFeatures) -> Verdict? {
+    let reason: String
+    if let score = f.aestheticsScore, score >= 0 {
+      return nil
+    } else if let luma = f.meanLuma, luma < thresholds.darkMaxLuma {
+      reason = "Ảnh gần như tối đen"
+    } else if let luma = f.meanLuma, luma > thresholds.brightMinLuma {
+      reason = "Ảnh gần như trắng xoá"
+    } else if let sharpness = f.sharpness, sharpness < thresholds.blurMaxSharpness {
+      reason = "Ảnh bị mờ / rung"
+    } else if let score = f.aestheticsScore, score < thresholds.aestheticsMinScore {
+      reason = "Ảnh chất lượng rất thấp"
+    } else {
+      return nil
+    }
+    return Verdict(category: .lowQualityPhoto, suggestion: .delete, reason: reason)
+  }
+
+  /// A camera photo Vision calls "utility" (document, whiteboard, receipt…), old enough to check.
+  private func utilityPhoto(_ f: ScreenshotFeatures, capturedAt: Date, now: Date) -> Verdict? {
+    guard f.isUtility == true else { return nil }
+    let age = calendar.wholeDays(from: capturedAt, to: now)
+    guard age >= thresholds.utilityMinAgeDays else { return nil }
+    return Verdict(
+      category: .utilityPhoto, suggestion: .review,
+      reason: "Ảnh tài liệu / tiện ích, chụp \(age) ngày trước")
   }
 
   private func isOlderThanOrderMaxAge(_ date: Date, now: Date) -> Bool {

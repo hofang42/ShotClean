@@ -8,8 +8,12 @@ typealias ShotCategory = ShotCleanCore.Category
 extension ShotCategory {
   /// Order of the category cards on the overview (receipts are shown separately).
   static let cleanable: [ShotCategory] = [
-    .exactDuplicate, .qrCode, .expiredTicket, .expiredOrder, .nearDuplicate,
+    .exactDuplicate, .burstShot, .oldScreenshot, .lowQualityPhoto, .qrCode, .expiredTicket,
+    .expiredOrder, .nearDuplicate, .utilityPhoto,
   ]
+
+  /// Categories that are only ever suggested for review, never preselected.
+  static let reviewOnly: Set<ShotCategory> = [.nearDuplicate, .utilityPhoto]
 
   var title: String {
     switch self {
@@ -19,6 +23,10 @@ extension ShotCategory {
     case .expiredTicket: Strings.Category.ticket
     case .expiredOrder: Strings.Category.order
     case .transferReceipt: Strings.Category.receipt
+    case .burstShot: Strings.Category.burst
+    case .oldScreenshot: Strings.Category.oldScreenshot
+    case .lowQualityPhoto: Strings.Category.lowQuality
+    case .utilityPhoto: Strings.Category.utility
     case .other: Strings.Category.other
     }
   }
@@ -31,6 +39,10 @@ extension ShotCategory {
     case .expiredTicket: Strings.Category.ticketShort
     case .expiredOrder: Strings.Category.orderShort
     case .transferReceipt: Strings.Category.receiptShort
+    case .burstShot: Strings.Category.burstShort
+    case .oldScreenshot: Strings.Category.oldScreenshotShort
+    case .lowQualityPhoto: Strings.Category.lowQualityShort
+    case .utilityPhoto: Strings.Category.utilityShort
     case .other: Strings.Category.otherShort
     }
   }
@@ -44,6 +56,10 @@ extension ShotCategory {
     case .expiredTicket: Strings.Category.ticketSummary
     case .expiredOrder: Strings.Category.orderSummary
     case .transferReceipt: Strings.Category.receiptSummary
+    case .burstShot: Strings.Category.burstSummary
+    case .oldScreenshot: Strings.Category.oldScreenshotSummary
+    case .lowQualityPhoto: Strings.Category.lowQualitySummary
+    case .utilityPhoto: Strings.Category.utilitySummary
     case .other: Strings.Category.otherSummary
     }
   }
@@ -56,6 +72,10 @@ extension ShotCategory {
     case .expiredTicket: "ticket"
     case .expiredOrder: "shippingbox"
     case .transferReceipt: "checkmark.shield"
+    case .burstShot: "square.stack.3d.down.right"
+    case .oldScreenshot: "clock.arrow.circlepath"
+    case .lowQualityPhoto: "camera.aperture"
+    case .utilityPhoto: "doc.text.viewfinder"
     case .other: "photo"
     }
   }
@@ -68,6 +88,10 @@ extension ShotCategory {
     case .expiredTicket: Color(light: 0xF27A1A, dark: 0xFF9A45)
     case .expiredOrder: Color(light: 0xD9A100, dark: 0xF2C230)
     case .transferReceipt: Theme.keep
+    case .burstShot: Color(light: 0x2F7DE1, dark: 0x5EA2FF)
+    case .oldScreenshot: Color(light: 0x7A6A58, dark: 0xB8A48C)
+    case .lowQualityPhoto: Color(light: 0xD6455D, dark: 0xFF6F86)
+    case .utilityPhoto: Color(light: 0x5B6B7F, dark: 0x9AAABD)
     case .other: Color.gray
     }
   }
@@ -80,6 +104,44 @@ extension Verdict.Suggestion {
     case .keep: Strings.Suggestion.keep
     case .review: Strings.Suggestion.review
     case .none: Strings.Suggestion.none
+    }
+  }
+}
+
+extension Cluster.Kind {
+  /// Category whose style (title, symbol, tint) represents this kind of cluster.
+  var category: ShotCategory {
+    switch self {
+    case .exact: .exactDuplicate
+    case .near: .nearDuplicate
+    case .burst: .burstShot
+    }
+  }
+
+  /// Short title used in each cluster row header.
+  var rowTitle: String {
+    switch self {
+    case .exact: Strings.Cluster.exactTitle
+    case .near: Strings.Cluster.nearTitle
+    case .burst: Strings.Cluster.burstTitle
+    }
+  }
+
+  /// Explanation shown above the clusters.
+  var intro: String {
+    switch self {
+    case .exact: Strings.Cluster.exactIntro
+    case .near: Strings.Cluster.nearIntro
+    case .burst: Strings.Cluster.burstIntro
+    }
+  }
+
+  /// How the Core picks the keeper (REV-19): exact → oldest, near → largest, burst → newest.
+  var coreKeeperNote: String {
+    switch self {
+    case .exact: Strings.Cluster.keeperOldest
+    case .near: Strings.Cluster.keeperLargest
+    case .burst: Strings.Cluster.keeperNewest
     }
   }
 }

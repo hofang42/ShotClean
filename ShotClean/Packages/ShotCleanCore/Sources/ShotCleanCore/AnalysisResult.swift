@@ -24,16 +24,23 @@ public struct AnalysisResult: Sendable {
     order.filter { verdicts[$0]?.category == category }
   }
 
-  /// Ids suggested for deletion. Never contains receipts or near duplicates.
+  /// Ids suggested for deletion (`.delete` only): exact-duplicate and burst non-keepers,
+  /// expired tickets/orders, old QR codes, old screenshots and low-quality photos. Never
+  /// contains receipts, protected assets (they are `.keep`), review-only categories (near
+  /// duplicates, utility photos, important-looking old screenshots) or `.other`.
   public func preselectedForDeletion() -> Set<String> {
     Set(
       verdicts.compactMap { id, verdict in
         verdict.suggestion == .delete
-          && verdict.category != .transferReceipt
-          && verdict.category != .nearDuplicate
+          && !Self.neverPreselected.contains(verdict.category)
           ? id : nil
       })
   }
+
+  /// Categories that are never preselected, whatever their suggestion.
+  private static let neverPreselected: Set<Category> = [
+    .transferReceipt, .nearDuplicate, .utilityPhoto, .other,
+  ]
 
   /// Sum of `sizes` for `ids`; unknown ids count as 0.
   public func reclaimableBytes(_ ids: Set<String>, sizes: [String: Int64]) -> Int64 {
