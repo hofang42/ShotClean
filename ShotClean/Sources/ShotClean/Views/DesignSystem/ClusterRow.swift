@@ -3,7 +3,7 @@ import SwiftUI
 
 /// One duplicate cluster (S6) as a horizontal row. The keeper has a keep-colored border and a
 /// "Giữ" tag that moves with `matchedGeometryEffect`. Tap another photo to make it the keeper;
-/// the ring toggles deletion for that photo.
+/// the ring toggles deletion for that photo — the keeper included, so a whole cluster can go.
 struct ClusterRow: View {
   struct Member: Identifiable {
     let id: String
@@ -21,6 +21,10 @@ struct ClusterRow: View {
   let onSetKeeper: (String) -> Void
   let onToggle: (String) -> Void
   let onSelectOthers: () -> Void
+  /// Selects every member, the keeper included (receipts excluded).
+  let onSelectAll: () -> Void
+  /// Deselects every member.
+  let onSelectNone: () -> Void
   let onCompare: () -> Void
 
   @Namespace private var keeperNamespace
@@ -73,9 +77,18 @@ struct ClusterRow: View {
   @ViewBuilder private var actionButtons: some View {
     Button(Strings.Cluster.compare, systemImage: "rectangle.split.2x1", action: onCompare)
       .disabled(members.count < 2)
-    if kind == .near {
-      Button(
-        Strings.Cluster.selectOthers, systemImage: "checkmark.circle", action: onSelectOthers)
+    Button(
+      Strings.Cluster.selectOthers, systemImage: "checkmark.circle", action: onSelectOthers)
+    // Receipts are never bulk-selected, so they do not count for "whole cluster selected".
+    let deletable = members.filter { !$0.isReceipt }
+    if !deletable.isEmpty {
+      if deletable.allSatisfy(\.isSelected) {
+        Button(Strings.Cluster.selectNone, systemImage: "xmark.circle", action: onSelectNone)
+      } else {
+        Button(
+          Strings.Cluster.selectAll, systemImage: "trash.circle", role: .destructive,
+          action: onSelectAll)
+      }
     }
   }
 
@@ -99,16 +112,14 @@ struct ClusterRow: View {
     }
     .buttonStyle(.plain)
     .overlay(alignment: .topLeading) {
-      if isKeeper {
+      if isKeeper && !member.isSelected {
         keeperTag
           .matchedGeometryEffect(id: "keeper", in: keeperNamespace)
           .padding(Theme.Spacing.xs)
       }
     }
     .overlay(alignment: .topTrailing) {
-      if !isKeeper || member.isSelected {
-        SelectionRing(isSelected: member.isSelected) { onToggle(member.id) }
-      }
+      SelectionRing(isSelected: member.isSelected) { onToggle(member.id) }
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(Strings.Cluster.member(index + 1, members.count, member.spokenDate))

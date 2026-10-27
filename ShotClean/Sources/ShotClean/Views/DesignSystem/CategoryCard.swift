@@ -62,9 +62,10 @@ struct CategoryCard: View {
           .accessibilityHidden(true)
       }
     }
-    .padding(Theme.Spacing.m)
+    .padding(Theme.Spacing.l)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Theme.card, in: .rect(cornerRadius: Theme.Radius.card))
+    .shadow(color: Theme.shadow, radius: 8, y: 2)
     .overlay {
       if isProtected {
         RoundedRectangle(cornerRadius: Theme.Radius.card)
@@ -79,9 +80,10 @@ struct CategoryCard: View {
   private var icon: some View {
     Image(systemName: category.symbolName)
       .font(.body.weight(.semibold))
-      .foregroundStyle(.white)
-      .frame(width: 36, height: 36)
-      .background(category.tint, in: .rect(cornerRadius: 9))
+      .symbolRenderingMode(.hierarchical)
+      .foregroundStyle(category.tint)
+      .frame(width: 40, height: 40)
+      .background(category.tint.opacity(0.15), in: .rect(cornerRadius: 12))
       .accessibilityHidden(true)
   }
 }

@@ -41,6 +41,10 @@ final class AppModel {
   /// Screenshots that could not be analyzed without network access (risk R4).
   private(set) var unavailableIDs: Set<String> = []
   private(set) var hasCompletedOnboarding: Bool
+  /// User-tunable rules (S9). Change through `updateSettings(_:)`.
+  private(set) var settings: CleanupSettings
+  /// Automatic preselection under the current settings (S4 quick clean). Never receipts.
+  private(set) var preselectedIDs: Set<String> = []
 
   @ObservationIgnored private let defaults: UserDefaults
   @ObservationIgnored private let library = ScreenshotLibrary()
@@ -49,6 +53,8 @@ final class AppModel {
   /// `false` when the cache file exists but could not be read; it must not be overwritten.
   @ObservationIgnored private var canPersistCache = true
   @ObservationIgnored private var featuresByID: [String: ScreenshotFeatures] = [:]
+  /// Ids without a known capture date; never preselected (REV-4).
+  @ObservationIgnored private var undatedIDs: Set<String> = []
   @ObservationIgnored private var scanTask: Task<Void, Never>?
   /// Ids deleted this session. A scan that started before a deletion never brings them back (REV-6).
   @ObservationIgnored private var deletedIDs: Set<String> = []
@@ -68,6 +74,7 @@ final class AppModel {
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+    settings = CleanupSettings.load(from: defaults)
     let onboarded = defaults.bool(forKey: Self.onboardingKey)
     hasCompletedOnboarding = onboarded
     if !onboarded {
@@ -310,12 +317,15 @@ final class AppModel {
 
   /// Classifies `entries` off the main actor and publishes the result. `reset` starts the
   /// selection over (first result, full rescan); otherwise the user's choices are merged in.
-  private func applyAnalysis(of entries: [AnalyzedScreenshot], reset: Bool) async {
+  private func applyAnalysis(
+    of entries: [AnalyzedScreenshot], reset: Bool, reapply: Bool = false
+  ) async {
     analysisGeneration += 1
     let generation = analysisGeneration
     let now = Date()
+    let thresholds = settings.thresholds
     let analysis = await Task.detached(priority: .userInitiated) {
-      AppModel.classify(entries, now: now)
+      AppModel.classify(entries, now: now, thresholds: thresholds)
     }.value
     // A newer analysis (e.g. after a deletion) started meanwhile; it wins.
     guard generation == analysisGeneration else { return }
@@ -331,35 +341,40 @@ final class AppModel {
     self.sizes = sizes
     result = analysis
 
-    // REV-4: a screenshot without a capture date is never preselected.
-    let preselected = analysis.preselectedForDeletion().subtracting(undated)
+    undatedIDs = undated
+    let preselected = preselection(for: analysis)
+    preselectedIDs = preselected
     let known = Set(featuresByID.keys)
-    if reset {
+    if reapply {
+      selectionState.reapply(knownIDs: known, preselected: preselected)
+    } else if reset {
       selectionState.reset(knownIDs: known, preselected: preselected)
     } else {
       selectionState.merge(knownIDs: known, preselected: preselected)
     }
-    swipeQueue = Self.swipeOrder(for: analysis)
+    swipeQueue = Self.swipeOrder(for: analysis, enabled: settings.enabledCategories)
     // REV-8: one batched, off-main PHAsset fetch for the ids the cells will ask for.
     await library.syncAssets(with: known)
   }
 
   /// Runs `LibraryAnalyzer` with a feature-print distance. Off the main actor.
-  nonisolated private static func classify(_ entries: [AnalyzedScreenshot], now: Date)
-    -> AnalysisResult
-  {
+  nonisolated private static func classify(
+    _ entries: [AnalyzedScreenshot], now: Date, thresholds: Thresholds
+  ) -> AnalysisResult {
     // REV-10: prints are read lazily, only for the pairs the clusterer compares.
     let index = FeaturePrintIndex(load: FeaturePrintStore.read)
-    return LibraryAnalyzer().analyze(
+    return LibraryAnalyzer(thresholds: thresholds).analyze(
       entries.map(\.features),
       distance: { index.distance($0, $1) },
       now: now
     )
   }
 
-  private static func swipeOrder(for analysis: AnalysisResult) -> [String] {
+  private static func swipeOrder(
+    for analysis: AnalysisResult, enabled: Set<ShotCleanCore.Category>
+  ) -> [String] {
     let suggested: (Verdict.Suggestion) -> [String] = { suggestion in
-      ShotCleanCore.Category.allCases.flatMap { category in
+      ShotCleanCore.Category.allCases.filter(enabled.contains).flatMap { category in
         analysis.ids(in: category).filter { analysis.verdicts[$0]?.suggestion == suggestion }
       }
     }
@@ -376,9 +391,80 @@ final class AppModel {
     selectionState.setSelected(isSelected, for: ids)
   }
 
-  /// Keeper shown for `cluster`: the user's choice if any, else the Core keeper (REV-9).
+  /// Keeper shown for `cluster`: the user's choice if any, else the settings rule (REV-9).
   func keeper(of cluster: Cluster) -> String {
-    selectionState.keeper(forCoreKeeper: cluster.keeperID, members: cluster.memberIDs)
+    selectionState.keeper(
+      forCoreKeeper: cluster.keeperID, members: cluster.memberIDs,
+      defaultKeeper: defaultKeeper(of: cluster))
+  }
+
+  /// Keeper picked by `settings.keeperRule`. Receipts win so they are never the ones deleted.
+  private func defaultKeeper(of cluster: Cluster) -> String {
+    let members = cluster.memberIDs
+    if let receipt = members.first(where: {
+      result?.verdicts[$0]?.category == .transferReceipt
+    }) {
+      return receipt
+    }
+    let date: (String) -> Date = { self.featuresByID[$0]?.createdAt ?? .distantPast }
+    switch settings.keeperRule {
+    case .automatic: return cluster.keeperID
+    case .oldest: return members.min { date($0) < date($1) } ?? cluster.keeperID
+    case .newest: return members.max { date($0) < date($1) } ?? cluster.keeperID
+    case .largestFile:
+      return members.max { (sizes[$0] ?? 0) < (sizes[$1] ?? 0) } ?? cluster.keeperID
+    }
+  }
+
+  /// Ids preselected for deletion under the current settings.
+  /// - REV-4: a screenshot without a capture date is never preselected.
+  /// - Only enabled categories; receipts never.
+  /// - Duplicate clusters follow the keeper rule: everyone but the default keeper.
+  /// - A member matched by another rule (receipt, expired ticket…) keeps that rule's say.
+  /// - Order independent: a keeper of any enabled cluster is never picked by the cluster pass,
+  ///   even when it is a non-keeper of an overlapping cluster (exact keeper inside a near one).
+  private func preselection(for analysis: AnalysisResult) -> Set<String> {
+    let enabled = settings.enabledCategories
+    // Exact-duplicate verdicts are decided below with the keeper rule, not by the Core keeper.
+    let byRule = analysis.preselectedForDeletion().filter { id in
+      guard let category = analysis.verdicts[id]?.category, category != .exactDuplicate else {
+        return false
+      }
+      return enabled.contains(category)
+    }
+    var byCluster: Set<String> = []
+    var keepers: Set<String> = []
+    for cluster in analysis.clusters {
+      let kindEnabled =
+        cluster.kind == .exact
+        ? enabled.contains(.exactDuplicate)
+        : enabled.contains(.nearDuplicate) && settings.preselectNearDuplicates
+      guard kindEnabled else { continue }
+      let keeper = defaultKeeper(of: cluster)
+      keepers.insert(keeper)
+      for id in cluster.memberIDs where id != keeper {
+        let category = analysis.verdicts[id]?.category
+        if category == .exactDuplicate || category == .nearDuplicate || category == .other {
+          byCluster.insert(id)
+        }
+      }
+    }
+    return byRule.union(byCluster.subtracting(keepers)).subtracting(undatedIDs)
+  }
+
+  /// Applies new rules: saves them and reclassifies the cached analyses (no rescan).
+  func updateSettings(_ newSettings: CleanupSettings) async {
+    guard newSettings != settings else { return }
+    settings = newSettings
+    newSettings.save(to: defaults)
+    // No cache yet (first scan running): that scan classifies with the new settings.
+    guard let cache else { return }
+    let ordered = cache.entries.values.sorted {
+      ($0.features.createdAt, $0.features.id) < ($1.features.createdAt, $1.features.id)
+    }
+    // Nothing published yet: there are no user choices to keep, start from the preselection.
+    let hasResult = result != nil
+    await applyAnalysis(of: ordered, reset: !hasResult, reapply: hasResult)
   }
 
   /// The user picks a new keeper: it is deselected. For exact duplicates the previous keeper is
@@ -388,6 +474,7 @@ final class AppModel {
     let oldIsReceipt = result?.verdicts[oldKeeper]?.category == .transferReceipt
     selectionState.setKeeper(
       newKeeper, coreKeeperID: cluster.keeperID, members: cluster.memberIDs,
+      defaultKeeper: defaultKeeper(of: cluster),
       selectPreviousKeeper: cluster.kind == .exact && !oldIsReceipt)
   }
 

@@ -59,7 +59,8 @@ struct OverviewView: View {
 
   private func overview(_ result: AnalysisResult) -> some View {
     let summary = makeSummary(result)
-    let quickIDs = model.selection.intersection(result.preselectedForDeletion())
+    // Settings-aware preselection (keeper rule, enabled filters), not the raw Core one.
+    let quickIDs = model.selection.intersection(model.preselectedIDs)
     let receipts = result.ids(in: .transferReceipt)
 
     return ScrollView {
@@ -112,6 +113,7 @@ struct OverviewView: View {
               .frame(maxWidth: .infinity)
           }
           .buttonStyle(.borderedProminent)
+          .tint(Theme.accent)
           .disabled(quickIDs.isEmpty)
 
           Button {
@@ -156,7 +158,10 @@ struct OverviewView: View {
       .font(.title.bold())
       .fontDesign(.rounded)
       .monospacedDigit()
+      .foregroundStyle(.white)
       .contentTransition(.numericText())
+      // Keeps long titles clear of the decorative sparkles in the top-trailing corner.
+      .padding(.trailing, Theme.Spacing.xl)
 
       if summary.reviewCount > 0 {
         ReclaimBar(
@@ -165,7 +170,10 @@ struct OverviewView: View {
               category: category,
               count: summary.counts[category] ?? 0,
               bytes: summary.bytes[category] ?? 0)
-          })
+          }
+        )
+        .padding(Theme.Spacing.m)
+        .background(Theme.card, in: .rect(cornerRadius: Theme.Radius.card - 6))
       }
 
       Text(
@@ -173,11 +181,20 @@ struct OverviewView: View {
           Format.count(summary.candidateCount), Format.count(model.screenshotCount))
       )
       .font(.footnote)
-      .foregroundStyle(.secondary)
+      .foregroundStyle(.white.opacity(0.85))
     }
-    .padding(Theme.Spacing.l)
+    .padding(Theme.Spacing.xl)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Theme.card, in: .rect(cornerRadius: Theme.Radius.card))
+    .background(Theme.brandGradient, in: .rect(cornerRadius: Theme.Radius.hero))
+    .overlay(alignment: .topTrailing) {
+      Image(systemName: "sparkles")
+        .symbolRenderingMode(.hierarchical)
+        .font(.title2)
+        .foregroundStyle(.white.opacity(0.8))
+        .padding(Theme.Spacing.l)
+        .accessibilityHidden(true)
+    }
+    .shadow(color: Theme.brandStart.opacity(0.3), radius: 14, y: 6)
   }
 
   private func makeSummary(_ result: AnalysisResult) -> Summary {

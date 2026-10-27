@@ -3,8 +3,18 @@ import UIKit
 
 /// Design tokens from UI-SPEC §3.
 enum Theme {
-  static let accent = Color(light: 0x2F6BFF, dark: 0x5B8CFF)
-  static let keep = Color(light: 0x1E9E62, dark: 0x34C77B)
+  static let accent = Color(light: 0x4338CA, dark: 0x8B8FFF)
+  /// Brand gradient endpoints (indigo to mint), matching the app icon.
+  static let brandStart = Color(light: 0x3B2BB8, dark: 0x4A3FE0)
+  static let brandEnd = Color(light: 0x0FB5A0, dark: 0x14C9B0)
+  /// Computed: avoids a global stored `LinearGradient` under Swift 6 strict concurrency.
+  static var brandGradient: LinearGradient {
+    LinearGradient(
+      colors: [brandStart, brandEnd], startPoint: .topLeading, endPoint: .bottomTrailing)
+  }
+  /// Soft shadow color for cards.
+  static let shadow = Color.black.opacity(0.08)
+  static let keep = Color(light: 0x14925A, dark: 0x3DD68C)
   static let destructive = Color.red
   /// Solid backgrounds for content (no glass on content cards).
   static let background = Color(uiColor: .systemGroupedBackground)
@@ -12,9 +22,10 @@ enum Theme {
   static let placeholder = Color(uiColor: .tertiarySystemFill)
 
   enum Radius {
-    static let card: CGFloat = 16
+    static let card: CGFloat = 20
+    static let hero: CGFloat = 28
     static let thumbnail: CGFloat = 10
-    static let button: CGFloat = 12
+    static let button: CGFloat = 14
     static let floatingBar: CGFloat = 22
   }
 

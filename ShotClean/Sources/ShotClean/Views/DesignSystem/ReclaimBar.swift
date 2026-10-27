@@ -40,9 +40,9 @@ struct ReclaimBar: View {
       .chartLegend(.hidden)
       .chartXScale(domain: 0...max(total, 1))
       .chartPlotStyle { plot in
-        plot.clipShape(.rect(cornerRadius: 6))
+        plot.clipShape(.capsule)
       }
-      .frame(height: 14)
+      .frame(height: 12)
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(Strings.Overview.chartLabel(accessibilitySummary(visible)))
 
@@ -56,6 +56,7 @@ struct ReclaimBar: View {
             Text(segment.category.shortTitle)
           } icon: {
             Image(systemName: segment.category.symbolName)
+              .symbolRenderingMode(.hierarchical)
               .foregroundStyle(segment.category.tint)
           }
           .font(.caption)

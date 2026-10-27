@@ -38,6 +38,7 @@ struct OnboardingView: View {
           .frame(maxWidth: .infinity)
       }
       .buttonStyle(.borderedProminent)
+      .tint(Theme.accent)
       .controlSize(.large)
       .buttonBorderShape(.roundedRectangle(radius: Theme.Radius.button))
       .disabled(isStarting)
@@ -54,17 +55,20 @@ struct OnboardingView: View {
           .fill(Theme.card)
           .overlay {
             RoundedRectangle(cornerRadius: Theme.Radius.thumbnail)
-              .strokeBorder(.quaternary, lineWidth: 1)
+              .strokeBorder(Theme.accent.opacity(0.25), lineWidth: 1.5)
           }
+          .shadow(color: Theme.shadow, radius: 10, y: 4)
           .frame(width: 84, height: 150)
           .rotationEffect(.degrees(Double(index - 1) * 10))
           .offset(x: CGFloat(index - 1) * 46)
       }
       Image(systemName: "checkmark.shield.fill")
         .font(.system(size: 44))
-        .foregroundStyle(Theme.keep)
+        .symbolRenderingMode(.hierarchical)
+        .foregroundStyle(Theme.brandGradient)
         .padding(Theme.Spacing.m)
         .background(Theme.background, in: .circle)
+        .shadow(color: Theme.shadow, radius: 8, y: 3)
         .offset(y: 60)
     }
     .frame(height: 210)
@@ -77,6 +81,7 @@ struct OnboardingView: View {
         .font(.body)
     } icon: {
       Image(systemName: symbol)
+        .symbolRenderingMode(.hierarchical)
         .foregroundStyle(Theme.accent)
         .font(.title3)
     }
