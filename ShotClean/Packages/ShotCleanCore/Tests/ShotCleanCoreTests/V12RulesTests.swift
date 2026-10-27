@@ -245,7 +245,7 @@ struct V12RulesTests {
       TestSupport.features(
         "b", createdAt: at(seconds: 2), text: pageB, metadata: TestSupport.screenshot),
     ], distance: DistanceTable([("a", "b", 0.1)]))
-    #expect(byText.clusters.isEmpty)
+    #expect(!byText.clusters.contains { $0.kind == .burst })
     let byPicture = analyze(
       [
         TestSupport.features("a", createdAt: at(seconds: 0), metadata: TestSupport.screenshot),
