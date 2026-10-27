@@ -1,9 +1,10 @@
 import ShotCleanCore
 import SwiftUI
 
-/// S6: duplicate clusters, one horizontal row each. Exact: non-keepers come preselected from
-/// the Core. Near: nothing is preselected. Changing the keeper deselects the new keeper; for
-/// exact clusters the previous keeper is selected instead (never a receipt).
+/// S6: duplicate clusters, one horizontal row each. Exact: non-keepers come preselected. Near:
+/// preselected only when enabled in settings. Changing the keeper deselects the new keeper; for
+/// exact clusters the previous keeper is selected instead (never a receipt). The keeper can be
+/// selected too, so a whole cluster can be deleted.
 struct ClusterReviewView: View {
   private struct Comparison: Identifiable {
     let id = UUID()
@@ -32,6 +33,28 @@ struct ClusterReviewView: View {
           .font(.footnote)
           .foregroundStyle(.secondary)
 
+        if clusters.count > 1 {
+          HStack {
+            // Every cluster keeps its keeper here; deleting a whole cluster stays a per-row
+            // decision ("Xoá cả nhóm"), so one tap can never wipe every copy of every photo.
+            Button(Strings.Cluster.selectAllClusters, systemImage: "checkmark.circle.fill") {
+              let verdicts = model.result?.verdicts ?? [:]
+              let extras = clusters.flatMap { cluster in
+                let keeperID = model.keeper(of: cluster)
+                return cluster.memberIDs.filter {
+                  $0 != keeperID && verdicts[$0]?.category != .transferReceipt
+                }
+              }
+              model.setSelected(true, for: extras)
+            }
+            Spacer()
+            Button(Strings.Grid.selectNone, systemImage: "xmark.circle") {
+              model.setSelected(false, for: memberIDs)
+            }
+          }
+          .font(.subheadline)
+        }
+
         ForEach(clusters, id: \.keeperID) { cluster in
           let keeperID = model.keeper(of: cluster)
           ClusterRow(
@@ -50,6 +73,13 @@ struct ClusterReviewView: View {
                   $0 != keeperID && verdicts[$0]?.category != .transferReceipt
                 })
             },
+            onSelectAll: {
+              let verdicts = model.result?.verdicts ?? [:]
+              model.setSelected(
+                true,
+                for: cluster.memberIDs.filter { verdicts[$0]?.category != .transferReceipt })
+            },
+            onSelectNone: { model.setSelected(false, for: cluster.memberIDs) },
             onCompare: {
               comparison = Comparison(
                 keeperID: keeperID, otherIDs: cluster.memberIDs.filter { $0 != keeperID })

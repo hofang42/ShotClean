@@ -108,9 +108,13 @@ enum Strings {
     static let exactTitle = "Giống hệt"
     static let nearTitle = "Gần giống"
     static let exactIntro =
-      "Mỗi cụm giữ lại 1 ảnh (cũ nhất). Các ảnh còn lại đã được chọn sẵn để xoá."
+      "Mỗi cụm gợi ý giữ 1 ảnh, các ảnh còn lại đã được chọn sẵn. Chạm vòng tròn trên ảnh "
+      + "giữ lại hoặc bấm \"Xoá cả nhóm\" nếu muốn xoá hết."
     static let nearIntro =
-      "Các ảnh gần giống nhau. Không ảnh nào được chọn sẵn — bạn tự quyết định."
+      "Các ảnh gần giống nhau. Bạn tự quyết định — có thể xoá cả ảnh đang giữ."
+    static let selectAll = "Xoá cả nhóm"
+    static let selectNone = "Bỏ chọn nhóm"
+    static let selectAllClusters = "Chọn ảnh thừa ở mọi nhóm"
     static let keeperTag = "Giữ"
     static let keeperOldest = "Cũ nhất"
     /// Core keeper rule for near duplicates: largest pixel area, ties → oldest (REV-19).
@@ -174,7 +178,22 @@ enum Strings {
     static let nearGap = "Chụp cách nhau tối đa"
     static let duplicateKeeper = "Khi trùng, giữ ảnh"
     static let keeperOldest = "Cũ nhất"
-    static let rulesFooter = "Chỉnh ngưỡng sẽ có ở bản sau. Hiện đang dùng giá trị mặc định."
+    static let rulesFooter =
+      "Thay đổi được áp dụng ngay cho kết quả đã quét, không cần quét lại. "
+      + "Lựa chọn bạn đã tự đánh dấu được giữ nguyên."
+    static let filters = "Bộ lọc tự chọn sẵn"
+    static let filtersFooter =
+      "Chỉ những loại được bật mới được chọn sẵn để xoá và đưa vào hàng chờ vuốt. "
+      + "Biên lai chuyển khoản không bao giờ được chọn sẵn."
+    static let duplicates = "Ảnh trùng"
+    static let preselectNear = "Chọn sẵn ảnh gần giống"
+    static let keeperNewest = "Mới nhất"
+    static let keeperAutomatic = "Tự động (cũ nhất / nét nhất)"
+    static let keeperLargestFile = "Dung lượng lớn nhất"
+    static let resetDefaults = "Khôi phục mặc định"
+    static func sensitivity(_ value: String) -> String { "Độ nhạy: \(value)" }
+    static let sensitivityLow = "Chặt"
+    static let sensitivityHigh = "Rộng"
     static let protection = "Bảo vệ"
     static let alwaysKeepReceipts = "Luôn giữ biên lai"
     static let privacy = "Quyền riêng tư"

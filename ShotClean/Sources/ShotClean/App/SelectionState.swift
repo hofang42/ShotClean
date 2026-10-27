@@ -62,20 +62,37 @@ struct SelectionState: Equatable, Sendable {
     setSelected(!selected.contains(id), for: id)
   }
 
-  /// The keeper shown for a cluster whose Core keeper is `coreKeeperID`.
-  func keeper(forCoreKeeper coreKeeperID: String, members: [String]) -> String {
+  /// The keeper shown for a cluster whose Core keeper is `coreKeeperID`: the user's choice,
+  /// else `defaultKeeper` (the keeper rule from settings), else the Core keeper.
+  func keeper(forCoreKeeper coreKeeperID: String, members: [String], defaultKeeper: String? = nil)
+    -> String
+  {
     guard let chosen = keeperOverrides[coreKeeperID], members.contains(chosen) else {
-      return coreKeeperID
+      return defaultKeeper ?? coreKeeperID
     }
     return chosen
+  }
+
+  /// Settings changed: untouched ids follow the new preselection (it may add as well as drop,
+  /// the user asked for it), user choices and keeper overrides stay for ids that still exist.
+  mutating func reapply(knownIDs: Set<String>, preselected: Set<String>) {
+    touched.formIntersection(knownIDs)
+    selected = selected.intersection(touched).union(
+      preselected.intersection(knownIDs).subtracting(touched))
+    keeperOverrides = keeperOverrides.filter {
+      knownIDs.contains($0.key) && knownIDs.contains($0.value)
+    }
+    self.knownIDs = knownIDs
   }
 
   /// User picks `newKeeper` in a cluster. The new keeper is deselected; when
   /// `selectPreviousKeeper` is true (exact duplicates, not a receipt) the old keeper is selected.
   mutating func setKeeper(
-    _ newKeeper: String, coreKeeperID: String, members: [String], selectPreviousKeeper: Bool
+    _ newKeeper: String, coreKeeperID: String, members: [String], defaultKeeper: String? = nil,
+    selectPreviousKeeper: Bool
   ) {
-    let oldKeeper = keeper(forCoreKeeper: coreKeeperID, members: members)
+    let oldKeeper = keeper(
+      forCoreKeeper: coreKeeperID, members: members, defaultKeeper: defaultKeeper)
     guard newKeeper != oldKeeper else { return }
     keeperOverrides[coreKeeperID] = newKeeper
     setSelected(false, for: newKeeper)

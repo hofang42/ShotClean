@@ -62,8 +62,8 @@ extension ShotCategory {
 
   var tint: Color {
     switch self {
-    case .exactDuplicate: Color(light: 0x2F6BFF, dark: 0x5B8CFF)
-    case .nearDuplicate: Color(light: 0x14A3A3, dark: 0x2CC6C6)
+    case .exactDuplicate: Color(light: 0x4F5BE8, dark: 0x8B93FF)
+    case .nearDuplicate: Color(light: 0x0E9F9A, dark: 0x2CD1C8)
     case .qrCode: Color(light: 0x8E44EC, dark: 0xB07CFF)
     case .expiredTicket: Color(light: 0xF27A1A, dark: 0xFF9A45)
     case .expiredOrder: Color(light: 0xD9A100, dark: 0xF2C230)

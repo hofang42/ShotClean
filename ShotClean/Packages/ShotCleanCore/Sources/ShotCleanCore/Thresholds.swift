@@ -19,6 +19,14 @@ public struct Thresholds: Sendable, Equatable {
   public var nearDupMaxDistance: Float
   /// Maximum capture time gap (seconds) between two near duplicates.
   public var nearDupMaxGap: TimeInterval
+  /// A member of a near-duplicate cluster with ≥ 3 members whose FeaturePrint distance to the
+  /// cluster medoid is known and `≥` this value is dropped (prevents chained-cluster drift).
+  public var nearDupMaxMedoidDistance: Float
+  /// Minimum Jaccard similarity of OCR token sets for text-based near duplicates
+  /// (same screen scrolled slightly). `> 1` disables the text rule.
+  public var nearDupTextJaccard: Double
+  /// Both screenshots need at least this many OCR tokens for the text rule to apply.
+  public var nearDupMinTextTokens: Int
   /// Calendar used for day arithmetic, year inference and formatting.
   public var calendar: Calendar
 
@@ -29,6 +37,9 @@ public struct Thresholds: Sendable, Equatable {
     orderMaxAgeDays: Int = 30,
     nearDupMaxDistance: Float = 0.35,
     nearDupMaxGap: TimeInterval = 600,
+    nearDupMaxMedoidDistance: Float = 0.6,
+    nearDupTextJaccard: Double = 0.85,
+    nearDupMinTextTokens: Int = 15,
     calendar: Calendar = Thresholds.vietnameseCalendar
   ) {
     self.qrMinArea = qrMinArea
@@ -37,6 +48,9 @@ public struct Thresholds: Sendable, Equatable {
     self.orderMaxAgeDays = orderMaxAgeDays
     self.nearDupMaxDistance = nearDupMaxDistance
     self.nearDupMaxGap = nearDupMaxGap
+    self.nearDupMaxMedoidDistance = nearDupMaxMedoidDistance
+    self.nearDupTextJaccard = nearDupTextJaccard
+    self.nearDupMinTextTokens = nearDupMinTextTokens
     self.calendar = calendar
   }
 

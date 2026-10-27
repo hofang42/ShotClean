@@ -25,10 +25,10 @@ struct ScanningView: View {
 
       ZStack {
         Circle()
-          .stroke(Color(uiColor: .systemFill), lineWidth: 14)
+          .stroke(Theme.accent.opacity(0.12), lineWidth: 14)
         Circle()
           .trim(from: 0, to: fraction)
-          .stroke(Theme.accent, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+          .stroke(Theme.brandGradient, style: StrokeStyle(lineWidth: 14, lineCap: .round))
           .rotationEffect(.degrees(-90))
           .animation(reduceMotion ? nil : .easeOut, value: fraction)
         if total > 0 {
@@ -46,7 +46,8 @@ struct ScanningView: View {
             .controlSize(.large)
         }
       }
-      .frame(width: 180, height: 180)
+      .frame(width: 200, height: 200)
+      .shadow(color: Theme.accent.opacity(0.18), radius: 16, y: 6)
       .accessibilityElement(children: .ignore)
       .accessibilityLabel(Strings.Scan.accessibilityLabel)
       .accessibilityValue(

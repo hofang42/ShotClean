@@ -17,6 +17,7 @@ struct ResultView: View {
       VStack(spacing: Theme.Spacing.l) {
         Image(systemName: "checkmark.circle.fill")
           .font(.system(size: 72))
+          .symbolRenderingMode(.hierarchical)
           .foregroundStyle(Theme.keep)
           .symbolEffect(.bounce, value: didAppear)
           .accessibilityHidden(true)
@@ -28,8 +29,8 @@ struct ResultView: View {
 
         if bytes > 0 {
           Text(Format.bytes(displayedBytes))
-            .font(.largeTitle.bold())
-            .fontDesign(.rounded)
+            .font(.system(size: 48, weight: .bold, design: .rounded))
+            .foregroundStyle(Theme.brandGradient)
             .monospacedDigit()
             .contentTransition(.numericText(value: Double(displayedBytes)))
             .accessibilityLabel(Format.bytes(bytes))
@@ -49,6 +50,7 @@ struct ResultView: View {
         .padding(Theme.Spacing.l)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.card, in: .rect(cornerRadius: Theme.Radius.card))
+        .shadow(color: Theme.shadow, radius: 8, y: 2)
 
         Button {
           router.path = []
@@ -58,6 +60,7 @@ struct ResultView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
+        .tint(Theme.accent)
         .controlSize(.large)
         .buttonBorderShape(.roundedRectangle(radius: Theme.Radius.button))
       }

@@ -2,12 +2,14 @@ import ShotCleanCore
 import SwiftUI
 import UIKit
 
-/// S9 (minimal POC): read-only thresholds, receipt protection, privacy, full rescan, debug.
+/// S9: editable cleanup rules and filters, receipt protection, privacy, full rescan, debug.
+/// Rule changes are applied to the cached analyses right away (no rescan).
 struct SettingsView: View {
   @Environment(AppModel.self) private var model
   @Environment(\.openURL) private var openURL
-
-  private let thresholds = Thresholds.default
+  /// Local draft; pushed to the model when it changes.
+  @State private var draft = CleanupSettings.default
+  @State private var isLoaded = false
 
   private var isScanning: Bool {
     if case .scanning = model.phase { return true }
@@ -21,27 +23,89 @@ struct SettingsView: View {
     return "\(short) (\(build))"
   }
 
+  private func categoryBinding(_ category: ShotCleanCore.Category) -> Binding<Bool> {
+    Binding(
+      get: { draft.enabledCategories.contains(category) },
+      set: { isOn in
+        if isOn {
+          draft.enabledCategories.insert(category)
+        } else {
+          draft.enabledCategories.remove(category)
+        }
+      })
+  }
+
+  private func keeperTitle(_ rule: CleanupSettings.KeeperRule) -> String {
+    switch rule {
+    case .automatic: Strings.Settings.keeperAutomatic
+    case .oldest: Strings.Settings.keeperOldest
+    case .newest: Strings.Settings.keeperNewest
+    case .largestFile: Strings.Settings.keeperLargestFile
+    }
+  }
+
   var body: some View {
     Form {
       Section {
-        LabeledContent(
-          Strings.Settings.qrAge, value: Strings.Settings.days(thresholds.qrMinAgeDays))
-        LabeledContent(
-          Strings.Settings.ticketGrace, value: Strings.Settings.days(thresholds.ticketGraceDays))
-        LabeledContent(
-          Strings.Settings.orderAge, value: Strings.Settings.days(thresholds.orderMaxAgeDays))
-        LabeledContent(
-          Strings.Settings.nearSensitivity,
-          value: Strings.Settings.distance(
-            Format.decimal(Double(thresholds.nearDupMaxDistance))))
-        LabeledContent(
-          Strings.Settings.nearGap,
-          value: Strings.Settings.minutes(Int(thresholds.nearDupMaxGap / 60)))
-        LabeledContent(Strings.Settings.duplicateKeeper, value: Strings.Settings.keeperOldest)
+        ForEach(
+          [ShotCategory.exactDuplicate, .nearDuplicate, .expiredTicket, .expiredOrder, .qrCode],
+          id: \.self
+        ) { category in
+          Toggle(isOn: categoryBinding(category)) {
+            Label(category.title, systemImage: category.symbolName)
+          }
+        }
+      } header: {
+        Text(Strings.Settings.filters)
+      } footer: {
+        Text(Strings.Settings.filtersFooter)
+      }
+
+      Section {
+        Stepper(value: $draft.qrMinAgeDays, in: 0...365) {
+          LabeledContent(Strings.Settings.qrAge, value: Strings.Settings.days(draft.qrMinAgeDays))
+        }
+        Stepper(value: $draft.ticketGraceDays, in: 0...30) {
+          LabeledContent(
+            Strings.Settings.ticketGrace, value: Strings.Settings.days(draft.ticketGraceDays))
+        }
+        Stepper(value: $draft.orderMaxAgeDays, in: 1...365, step: 5) {
+          LabeledContent(
+            Strings.Settings.orderAge, value: Strings.Settings.days(draft.orderMaxAgeDays))
+        }
       } header: {
         Text(Strings.Settings.rules)
       } footer: {
         Text(Strings.Settings.rulesFooter)
+      }
+
+      Section(Strings.Settings.duplicates) {
+        Picker(Strings.Settings.duplicateKeeper, selection: $draft.keeperRule) {
+          ForEach(CleanupSettings.KeeperRule.allCases, id: \.self) { rule in
+            Text(keeperTitle(rule)).tag(rule)
+          }
+        }
+        Toggle(Strings.Settings.preselectNear, isOn: $draft.preselectNearDuplicates)
+        VStack(alignment: .leading) {
+          LabeledContent(
+            Strings.Settings.nearSensitivity,
+            value: Format.decimal(draft.nearDupMaxDistance))
+          Slider(value: $draft.nearDupMaxDistance, in: 0.15...0.6, step: 0.05) {
+            Text(Strings.Settings.nearSensitivity)
+          } minimumValueLabel: {
+            Text(Strings.Settings.sensitivityLow).font(.caption)
+          } maximumValueLabel: {
+            Text(Strings.Settings.sensitivityHigh).font(.caption)
+          }
+        }
+        Stepper(value: $draft.nearDupMaxGapMinutes, in: 1...120) {
+          LabeledContent(
+            Strings.Settings.nearGap, value: Strings.Settings.minutes(draft.nearDupMaxGapMinutes))
+        }
+        Button(Strings.Settings.resetDefaults, systemImage: "arrow.uturn.backward") {
+          draft = .default
+        }
+        .disabled(draft == .default)
       }
 
       Section(Strings.Settings.protection) {
@@ -90,5 +154,21 @@ struct SettingsView: View {
       }
     }
     .navigationTitle(Strings.Settings.title)
+    .onAppear {
+      draft = model.settings
+      isLoaded = true
+    }
+    .onDisappear {
+      // Leaving within the debounce window cancels the task below; never drop the change.
+      guard isLoaded else { return }
+      let pending = draft
+      Task { await model.updateSettings(pending) }
+    }
+    .task(id: draft) {
+      // Debounce slider drags; the model reclassifies only for real changes.
+      try? await Task.sleep(for: .milliseconds(400))
+      guard isLoaded, !Task.isCancelled else { return }
+      await model.updateSettings(draft)
+    }
   }
 }

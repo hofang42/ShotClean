@@ -66,6 +66,92 @@ struct DuplicateClustererTests {
     #expect(clusters.first?.memberIDs == ["a", "b", "c"])
   }
 
+  @Test("drift guard drops a member far from the medoid")
+  func driftGuard() {
+    let features = [
+      TestSupport.features("a", createdAt: at(0)),
+      TestSupport.features("b", createdAt: at(1)),
+      TestSupport.features("c", createdAt: at(2)),
+    ]
+    // Medoid is b (sum 0.40); c is 0.30 from it, which is ≥ 0.3 → dropped.
+    let table = DistanceTable([("a", "b", 0.1), ("b", "c", 0.3), ("a", "c", 0.34)])
+    let strict = DuplicateClusterer(
+      thresholds: Thresholds(
+        nearDupMaxMedoidDistance: 0.3, calendar: TestSupport.thresholds.calendar))
+    let clusters = strict.clusters(features: features, distance: table.callAsFunction)
+    #expect(clusters.map(\.memberIDs) == [["a", "b"]])
+  }
+
+  @Test("text near duplicates link same-size screens with similar OCR")
+  func textNearDuplicate() {
+    let words = (0..<20).map { "word\($0)" }
+    let t1 = words.joined(separator: " ")
+    let t2 = (words.dropLast() + ["extra"]).joined(separator: " ")
+    let features = [
+      TestSupport.features("a", createdAt: at(0), text: t1),
+      TestSupport.features("b", createdAt: at(1), text: t2),
+      TestSupport.features("c", createdAt: at(2), text: "short text"),
+    ]
+    let clusters = clusterer.clusters(features: features) { _, _ in nil }
+    #expect(clusters.map(\.memberIDs) == [["a", "b"]])
+  }
+
+  @Test("same text but a clearly different picture does not link")
+  func textNeedsSimilarPicture() {
+    let text = (0..<20).map { "word\($0)" }.joined(separator: " ")
+    let features = [
+      TestSupport.features("a", createdAt: at(0), text: text),
+      TestSupport.features("b", createdAt: at(1), text: text),
+    ]
+    #expect(clusterer.clusters(features: features) { _, _ in 0.9 }.isEmpty)
+    #expect(clusterer.clusters(features: features) { _, _ in 0.5 }.count == 1)
+  }
+
+  @Test("text rule needs the same pixel size and enough tokens")
+  func textRuleGuards() {
+    let text = (0..<20).map { "word\($0)" }.joined(separator: " ")
+    let resized = [
+      TestSupport.features("a", createdAt: at(0), text: text),
+      TestSupport.features("b", createdAt: at(1), text: text, width: 1179, height: 2556),
+    ]
+    #expect(clusterer.clusters(features: resized) { _, _ in nil }.isEmpty)
+    let short = [
+      TestSupport.features("a", createdAt: at(0), text: "chat ok"),
+      TestSupport.features("b", createdAt: at(1), text: "chat ok"),
+    ]
+    #expect(clusterer.clusters(features: short) { _, _ in nil }.isEmpty)
+  }
+
+  @Test("drift guard ignores members without known distances when picking the medoid")
+  func driftGuardMissingPrints() {
+    let words = (0..<20).map { "word\($0)" }
+    let features = [
+      TestSupport.features("a", createdAt: at(0)),
+      TestSupport.features("b", createdAt: at(1)),
+      TestSupport.features("c", createdAt: at(2), text: words.joined(separator: " ")),
+      TestSupport.features("d", createdAt: at(3), text: words.joined(separator: " ")),
+    ]
+    // c–d link by text only (d has no print). d must not become the medoid (old sum = 0);
+    // b is. c is far from b and dropped; d only linked through c, so it goes too.
+    let table = DistanceTable([("a", "b", 0.1), ("b", "c", 0.3), ("a", "c", 0.34)])
+    let strict = DuplicateClusterer(
+      thresholds: Thresholds(
+        nearDupMaxMedoidDistance: 0.3, calendar: TestSupport.thresholds.calendar))
+    let clusters = strict.clusters(features: features) { a, b in
+      a == "d" || b == "d" ? nil : table(a, b)
+    }
+    #expect(clusters.map(\.memberIDs) == [["a", "b"]])
+  }
+
+  @Test("near keeper tie on area prefers the larger file")
+  func keeperFileSize() {
+    let features = [
+      TestSupport.features("a", createdAt: at(0), fileSize: 100),
+      TestSupport.features("b", createdAt: at(1), fileSize: 500),
+    ]
+    #expect(clusterer.clusters(features: features) { _, _ in 0.1 }.first?.keeperID == "b")
+  }
+
   @Test("near duplicates must be within the time window")
   func nearTimeWindow() {
     let features = [

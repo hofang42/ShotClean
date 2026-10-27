@@ -7,6 +7,14 @@ import Foundation
 ///   capture gap `≤ nearDupMaxGap`. Exact non-keepers are excluded (their keeper stands in
 ///   for them). Keeper = largest pixel area, ties → oldest.
 ///
+/// - text: pairs of the same pixel size inside the window whose OCR token sets have Jaccard
+///   similarity `≥ nearDupTextJaccard` also link (slightly scrolled screens), unless their
+///   FeaturePrint distance is known and `≥ nearDupMaxMedoidDistance` (same words, clearly
+///   different picture, e.g. one product page shown in two colors).
+/// - drift guard: in components of 3...40 members, members clearly far from the medoid are
+///   dropped.
+/// - keeper tie-breaks: larger area, then larger file size, then oldest.
+///
 /// `distance` is only queried for pairs inside the time window (sliding window over the
 /// capture-date order), so cost is O(n log n + pairs-in-window), not O(n²).
 /// Output is deterministic: members sorted by `createdAt` (ties by id), clusters sorted by
@@ -66,13 +74,31 @@ public struct DuplicateClusterer: Sendable {
     distance: (String, String) -> Float?
   ) -> [Cluster] {
     var components = UnionFind(count: candidates.count)
+    // `nearDupTextJaccard > 1` disables the text rule: skip tokenizing the whole library.
+    let usesText = thresholds.nearDupTextJaccard <= 1
+    let tokens = usesText ? candidates.map { Self.tokens($0.text) } : []
+    func textMatch(_ i: Int, _ j: Int) -> Bool {
+      guard usesText else { return false }
+      let small = min(tokens[i].count, tokens[j].count)
+      let large = max(tokens[i].count, tokens[j].count)
+      guard candidates[i].pixelSize == candidates[j].pixelSize,
+        small >= thresholds.nearDupMinTextTokens,
+        // Jaccard ≤ small / large: skips the set operations for clearly different texts.
+        Double(small) >= thresholds.nearDupTextJaccard * Double(large)
+      else { return false }
+      return Self.jaccard(tokens[i], tokens[j]) >= thresholds.nearDupTextJaccard
+    }
     for i in candidates.indices {
       var j = i + 1
       while j < candidates.count,
         candidates[j].createdAt.timeIntervalSince(candidates[i].createdAt)
           <= thresholds.nearDupMaxGap
       {
-        if let d = distance(candidates[i].id, candidates[j].id), d < thresholds.nearDupMaxDistance {
+        let d = distance(candidates[i].id, candidates[j].id)
+        if let d, d < thresholds.nearDupMaxDistance {
+          components.union(i, j)
+        } else if (d ?? 0) < thresholds.nearDupMaxMedoidDistance, textMatch(i, j) {
+          // Text links only when the pictures are not clearly different (or unknown).
           components.union(i, j)
         }
         j += 1
@@ -88,15 +114,110 @@ public struct DuplicateClusterer: Sendable {
     }
 
     return rootOrder.compactMap { root in
-      guard let indices = groups[root], indices.count >= 2 else { return nil }
+      guard let found = groups[root], found.count >= 2 else { return nil }
+      let indices = dropDrifters(found, candidates: candidates, distance: distance, text: textMatch)
+      guard indices.count >= 2 else { return nil }
       let members = indices.map { candidates[$0] }
-      // Members are chronological, so the first maximum is the oldest among the largest.
+      // Members are chronological, so the first best is the oldest among equals.
       var keeper = members[0]
-      for member in members.dropFirst() where member.pixelSize.area > keeper.pixelSize.area {
+      for member in members.dropFirst() where Self.isBetterKeeper(member, than: keeper) {
         keeper = member
       }
       return Cluster(kind: .near, memberIDs: members.map(\.id), keeperID: keeper.id)
     }
+  }
+
+  /// Largest area wins, then larger known file size; otherwise the earlier one stays.
+  static func isBetterKeeper(_ member: ScreenshotFeatures, than keeper: ScreenshotFeatures)
+    -> Bool
+  {
+    if member.pixelSize.area != keeper.pixelSize.area {
+      return member.pixelSize.area > keeper.pixelSize.area
+    }
+    if let a = member.fileSize, let b = keeper.fileSize { return a > b }
+    return false
+  }
+
+  /// Largest component the medoid check runs on (it costs O(k²) distance calls).
+  private static let maxDriftCheckSize = 40
+
+  /// Chained components can link A–B–C although A and C differ. For components of ≥ 3 members,
+  /// picks the medoid (lowest mean known distance; a member without any known distance cannot
+  /// be the medoid) and drops members whose known distance to it is `≥ nearDupMaxMedoidDistance`
+  /// unless they text-match it. `indices` stay chronological.
+  private func dropDrifters(
+    _ indices: [Int],
+    candidates: [ScreenshotFeatures],
+    distance: (String, String) -> Float?,
+    text: (Int, Int) -> Bool
+  ) -> [Int] {
+    guard indices.count >= 3, indices.count <= Self.maxDriftCheckSize else { return indices }
+    var sums = [Float](repeating: 0, count: indices.count)
+    var counts = [Int](repeating: 0, count: indices.count)
+    var table: [[Float?]] = Array(
+      repeating: Array(repeating: nil, count: indices.count), count: indices.count)
+    for a in indices.indices {
+      for b in indices.indices where b > a {
+        guard let d = distance(candidates[indices[a]].id, candidates[indices[b]].id) else {
+          continue
+        }
+        table[a][b] = d
+        table[b][a] = d
+        sums[a] += d
+        sums[b] += d
+        counts[a] += 1
+        counts[b] += 1
+      }
+    }
+    // A plain sum would favor members with few known distances (missing prints sum to 0).
+    let means = indices.indices.map { k in
+      counts[k] == 0 ? Float.infinity : sums[k] / Float(counts[k])
+    }
+    guard var medoid = means.firstIndex(where: \.isFinite) else { return indices }
+    for k in means.indices where means[k] < means[medoid] { medoid = k }
+    let far = thresholds.nearDupMaxMedoidDistance
+    var kept: Set<Int> = [medoid]
+    var unknown: [Int] = []
+    for k in indices.indices where k != medoid {
+      if let d = table[medoid][k] {
+        if d < far || text(indices[medoid], indices[k]) { kept.insert(k) }
+      } else {
+        unknown.append(k)
+      }
+    }
+    // No known distance to the medoid: keep a member only while it still links to a kept one
+    // (its original link may have been a dropped drifter).
+    var grew = true
+    while grew {
+      grew = false
+      for k in unknown where !kept.contains(k) {
+        for other in kept {
+          let d = table[k][other]
+          let isLinked =
+            (d.map { $0 < thresholds.nearDupMaxDistance } ?? false)
+            || ((d ?? 0) < far && text(indices[k], indices[other]))
+          if isLinked {
+            kept.insert(k)
+            grew = true
+            break
+          }
+        }
+      }
+    }
+    return indices.indices.filter { kept.contains($0) }.map { indices[$0] }
+  }
+
+  /// Normalized alphanumeric tokens (length ≥ 2) of OCR text.
+  static func tokens(_ text: String) -> Set<String> {
+    let folded = TextNormalizer.fold(text)
+    return Set(
+      folded.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        .filter { $0.count >= 2 })
+  }
+
+  static func jaccard(_ a: Set<String>, _ b: Set<String>) -> Double {
+    let union = a.union(b).count
+    return union == 0 ? 0 : Double(a.intersection(b).count) / Double(union)
   }
 
   // MARK: - Helpers
