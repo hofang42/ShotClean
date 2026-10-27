@@ -4,3 +4,4 @@ xtool/
 .swiftpm/
 .DS_Store
 squashfs-root/
+build-out/
